@@ -3,9 +3,11 @@ package com.yelos.backend.auth.services;
 import com.yelos.backend.auth.dto.AuthResponse;
 import com.yelos.backend.auth.dto.LoginRequest;
 import com.yelos.backend.auth.dto.RegisterRequest;
+import com.yelos.backend.security.JwtService;
 import com.yelos.backend.user.models.AppUser;
 import com.yelos.backend.user.models.Role;
 import com.yelos.backend.user.repo.UserRepo;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
@@ -13,23 +15,36 @@ import java.time.Instant;
 
 @Service
 public class AuthService {
-    private final UserRepo userRepo;
 
-    public AuthService(UserRepo userRepo) {
+    private final UserRepo userRepo;
+    private final PasswordEncoder passwordEncoder;
+    private final JwtService jwtService;
+
+    public AuthService(
+            UserRepo userRepo,
+            PasswordEncoder passwordEncoder,
+            JwtService jwtService
+    ) {
         this.userRepo = userRepo;
+        this.passwordEncoder = passwordEncoder;
+        this.jwtService = jwtService;
     }
 
     public AuthResponse register(RegisterRequest request) {
         if (userRepo.existsByEmail(request.email())) {
             throw new RuntimeException("Email already exists");
         }
+
         if (userRepo.existsByUsername(request.username())) {
             throw new RuntimeException("Username already exists");
         }
+
         if (request.role() == Role.ADMIN) {
             throw new RuntimeException("Cannot register as admin");
         }
-        String passwordHash = request.password();
+
+        String passwordHash = passwordEncoder.encode(request.password());
+
         AppUser user = new AppUser(
                 request.username(),
                 request.email(),
@@ -39,13 +54,20 @@ public class AuthService {
                 Instant.now(),
                 Instant.now()
         );
+
         AppUser savedUser = userRepo.save(user);
+
+        String accessToken = jwtService.generateAccessToken(savedUser);
+        String refreshToken = jwtService.generateRefreshToken(savedUser);
+
         return new AuthResponse(
                 savedUser.getId(),
                 savedUser.getUsername(),
                 savedUser.getEmail(),
                 savedUser.getRole(),
-                savedUser.getCredits()
+                savedUser.getCredits(),
+                accessToken,
+                refreshToken
         );
     }
 
@@ -53,17 +75,21 @@ public class AuthService {
         AppUser user = userRepo.findByUsername(request.username())
                 .orElseThrow(() -> new RuntimeException("No such user exists"));
 
-        if (!user.getPasswordHash().equals(request.password())) {
+        if (!passwordEncoder.matches(request.password(), user.getPasswordHash())) {
             throw new RuntimeException("Invalid Password");
         }
+
+        String accessToken = jwtService.generateAccessToken(user);
+        String refreshToken = jwtService.generateRefreshToken(user);
 
         return new AuthResponse(
                 user.getId(),
                 user.getUsername(),
                 user.getEmail(),
                 user.getRole(),
-                user.getCredits()
+                user.getCredits(),
+                accessToken,
+                refreshToken
         );
     }
-
 }

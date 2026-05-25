@@ -1,6 +1,7 @@
 package com.yelos.backend.purchase.services;
 
 import com.yelos.backend.datapost.models.DataPost;
+import com.yelos.backend.datapost.models.Genre;
 import com.yelos.backend.datapost.repo.DataPostRepo;
 import com.yelos.backend.globaldto.PageResponse;
 import com.yelos.backend.purchase.dto.PurchasePostRequest;
@@ -80,6 +81,13 @@ public class PurchaseService {
         userRepo.save(buyer);
         userRepo.save(seller);
 
+        transactionService.PurchaseTransaction(
+                buyer,
+                seller,
+                savedPurchase,
+                post.getPrice()
+        );
+
         return toPurchaseResponse(savedPurchase);
     }
 
@@ -109,10 +117,10 @@ public class PurchaseService {
 
         Pageable pageable = PageRequest.of(page, size, getPurchaseSort(sort));
 
-        String genreFilter = null;
+        Genre genreFilter = null;
 
         if (genre != null && !genre.equalsIgnoreCase("ALL")) {
-            genreFilter = genre.toUpperCase();
+            genreFilter = Genre.valueOf(genre.toUpperCase());
         }
 
         Page<Purchase> purchasePage = purchaseRepo.findByBuyerIdAndGenre(

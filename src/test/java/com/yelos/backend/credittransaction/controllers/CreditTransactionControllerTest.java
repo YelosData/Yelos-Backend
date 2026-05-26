@@ -2,6 +2,7 @@ package com.yelos.backend.credittransaction.controllers;
 
 import com.yelos.backend.credittransaction.dto.CreditsReponse;
 import com.yelos.backend.credittransaction.services.CreditServices;
+import com.yelos.backend.security.JwtService;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -28,6 +29,9 @@ class CreditTransactionControllerTest {
 
     @MockitoBean
     private CreditServices creditServices;
+
+    @MockitoBean
+    private JwtService jwtService;
 
     @Nested
     class AddCreditsTests {

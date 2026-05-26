@@ -4,6 +4,7 @@ import com.yelos.backend.globaldto.PageResponse;
 import com.yelos.backend.purchase.dto.PurchasePostRequest;
 import com.yelos.backend.purchase.dto.PurchaseResponse;
 import com.yelos.backend.purchase.services.PurchaseService;
+import com.yelos.backend.security.JwtService;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -35,6 +36,9 @@ class PurchaseControllerTest {
 
     @MockitoBean
     private PurchaseService purchaseService;
+
+    @MockitoBean
+    private JwtService jwtService;
 
     @Nested
     class PostPurchaseTests {

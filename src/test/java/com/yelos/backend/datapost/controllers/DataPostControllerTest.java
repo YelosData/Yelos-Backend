@@ -6,6 +6,7 @@ import com.yelos.backend.datapost.dto.PostRequest;
 import com.yelos.backend.datapost.models.Genre;
 import com.yelos.backend.datapost.services.DataPostService;
 import com.yelos.backend.globaldto.PageResponse;
+import com.yelos.backend.security.JwtService;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -35,6 +36,9 @@ class DataPostControllerTest {
 
     @MockitoBean
     private DataPostService dataPostService;
+
+    @MockitoBean
+    private JwtService jwtService;
 
     @Nested
     class CreatePostTests {

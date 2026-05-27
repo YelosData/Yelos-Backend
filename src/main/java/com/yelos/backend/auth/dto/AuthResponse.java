@@ -9,6 +9,8 @@ public record AuthResponse(
         String username,
         String email,
         Role role,
-        BigDecimal credits
+        BigDecimal credits,
+        String accessToken,
+        String refreshToken
 ) {
 }

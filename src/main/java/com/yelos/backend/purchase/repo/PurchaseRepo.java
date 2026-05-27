@@ -1,5 +1,6 @@
 package com.yelos.backend.purchase.repo;
 
+import com.yelos.backend.datapost.models.Genre;
 import com.yelos.backend.purchase.models.Purchase;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -22,7 +23,7 @@ public interface PurchaseRepo extends JpaRepository<Purchase, Long> {
     """)
     Page<Purchase> findByBuyerIdAndGenre(
             @Param("buyerId") Long buyerId,
-            @Param("genre") String genre,
+            @Param("genre") Genre genre,
             Pageable pageable
     );
 }

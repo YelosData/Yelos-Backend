@@ -18,6 +18,8 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -39,27 +41,45 @@ public class PurchaseService {
     @Transactional
     public PurchaseResponse purchasePost(PurchasePostRequest request) {
         AppUser buyer = userRepo.findById(request.buyerId())
-                .orElseThrow(() -> new RuntimeException("Buyer does not exist"));
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND,
+                        "Buyer does not exist"
+                ));
 
         DataPost post = dataPostRepo.findById(request.postId())
-                .orElseThrow(() -> new RuntimeException("Data post does not exist"));
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND,
+                        "Data post does not exist"
+                ));
 
         AppUser seller = post.getUser();
 
         if (buyer.getRole() != Role.BUSINESS) {
-            throw new RuntimeException("Only business users can purchase posts");
+            throw new ResponseStatusException(
+                    HttpStatus.FORBIDDEN,
+                    "Only business users can purchase posts"
+            );
         }
 
         if (buyer.getId() == seller.getId()) {
-            throw new RuntimeException("You cannot purchase your own post");
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "You cannot purchase your own post"
+            );
         }
 
         if (purchaseRepo.existsByBuyerIdAndPostId(buyer.getId(), post.getId())) {
-            throw new RuntimeException("You have already purchased this post");
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "You have already purchased this post"
+            );
         }
 
         if (buyer.getCredits().compareTo(post.getPrice()) < 0) {
-            throw new RuntimeException("Insufficient credits");
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "Insufficient credits"
+            );
         }
 
         buyer.deductCred(post.getPrice());
@@ -90,7 +110,6 @@ public class PurchaseService {
 
         return toPurchaseResponse(savedPurchase);
     }
-
     public List<PurchaseResponse> getPurchasesByUserId(Long userId) {
         AppUser buyer = userRepo.findById(userId)
                 .orElseThrow(() -> new RuntimeException("User does not exist"));

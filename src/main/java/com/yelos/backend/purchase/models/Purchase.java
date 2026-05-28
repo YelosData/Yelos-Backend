@@ -11,7 +11,7 @@ import java.time.Instant;
 @Entity
 @Table(name = "purchases",
         uniqueConstraints ={
-        @UniqueConstraint(columnNames = {"buyer_id", "data_post_id"})
+                @UniqueConstraint(columnNames = {"buyer_id", "data_post_id"})
         })
 public class Purchase {
 
@@ -35,9 +35,15 @@ public class Purchase {
     private Genre genre;
 
     private BigDecimal pricePaid;
+    @Column(columnDefinition = "TEXT")
     private String titleSnapshot;
+
+    @Column(columnDefinition = "TEXT")
     private String summarySnapshot;
+
+    @Column(columnDefinition = "TEXT")
     private String contentSnapshot;
+
     private Instant purchasedAt;
 
     public Purchase() {}

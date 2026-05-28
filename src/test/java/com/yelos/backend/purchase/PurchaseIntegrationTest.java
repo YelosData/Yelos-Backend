@@ -109,7 +109,7 @@ class PurchaseIntegrationTest extends IntegrationTestBase {
         }
 
         @Test
-        void purchasePost_insufficientCredits_doesNotSavePurchaseOrTransactions() {
+        void purchasePost_insufficientCredits_doesNotSavePurchaseOrTransactions() throws Exception {
             AppUser buyer = saveUser("buyer1", Role.BUSINESS, BigDecimal.valueOf(20));
             AppUser seller = saveUser("seller1", Role.SELLER, BigDecimal.ZERO);
 
@@ -122,18 +122,19 @@ class PurchaseIntegrationTest extends IntegrationTestBase {
                     BigDecimal.valueOf(30)
             );
 
-            assertThatThrownBy(() ->
-                    mockMvc.perform(post("/api/purchase")
+            mockMvc.perform(post("/api/purchase")
                             .contentType(APPLICATION_JSON)
                             .content("""
-                        {
-                          "buyerId": %d,
-                          "postId": %d
-                        }
-                        """.formatted(buyer.getId(), post.getId())))
-            )
-                    .hasRootCauseInstanceOf(RuntimeException.class)
-                    .hasRootCauseMessage("Insufficient credits");
+                {
+                  "buyerId": %d,
+                  "postId": %d
+                }
+                """.formatted(buyer.getId(), post.getId())))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(result ->
+                            assertThat(result.getResponse().getErrorMessage())
+                                    .isEqualTo("Insufficient credits")
+                    );
 
             AppUser updatedBuyer = userRepo.findById(buyer.getId()).orElseThrow();
             AppUser updatedSeller = userRepo.findById(seller.getId()).orElseThrow();
@@ -165,25 +166,26 @@ class PurchaseIntegrationTest extends IntegrationTestBase {
             mockMvc.perform(post("/api/purchase")
                             .contentType(APPLICATION_JSON)
                             .content("""
-                            {
-                              "buyerId": %d,
-                              "postId": %d
-                            }
-                            """.formatted(buyer.getId(), post.getId())))
+                    {
+                      "buyerId": %d,
+                      "postId": %d
+                    }
+                    """.formatted(buyer.getId(), post.getId())))
                     .andExpect(status().isOk());
 
-            assertThatThrownBy(() ->
-                    mockMvc.perform(post("/api/purchase")
+            mockMvc.perform(post("/api/purchase")
                             .contentType(APPLICATION_JSON)
                             .content("""
-                        {
-                          "buyerId": %d,
-                          "postId": %d
-                        }
-                        """.formatted(buyer.getId(), post.getId())))
-            )
-                    .hasRootCauseInstanceOf(RuntimeException.class)
-                    .hasRootCauseMessage("You have already purchased this post");
+                    {
+                      "buyerId": %d,
+                      "postId": %d
+                    }
+                    """.formatted(buyer.getId(), post.getId())))
+                    .andExpect(status().isConflict())
+                    .andExpect(result ->
+                            assertThat(result.getResponse().getErrorMessage())
+                                    .isEqualTo("You have already purchased this post")
+                    );
 
             AppUser updatedBuyer = userRepo.findById(buyer.getId()).orElseThrow();
             AppUser updatedSeller = userRepo.findById(seller.getId()).orElseThrow();
@@ -202,7 +204,7 @@ class PurchaseIntegrationTest extends IntegrationTestBase {
         }
 
         @Test
-        void purchasePost_buyerCannotPurchaseOwnPost() {
+        void purchasePost_buyerCannotPurchaseOwnPost() throws Exception {
             AppUser user = saveUser("buyerSeller1", Role.BUSINESS, BigDecimal.valueOf(100));
 
             DataPost post = savePost(
@@ -214,18 +216,19 @@ class PurchaseIntegrationTest extends IntegrationTestBase {
                     BigDecimal.valueOf(30)
             );
 
-            assertThatThrownBy(() ->
-                    mockMvc.perform(post("/api/purchase")
+            mockMvc.perform(post("/api/purchase")
                             .contentType(APPLICATION_JSON)
                             .content("""
-                        {
-                          "buyerId": %d,
-                          "postId": %d
-                        }
-                        """.formatted(user.getId(), post.getId())))
-            )
-                    .hasRootCauseInstanceOf(RuntimeException.class)
-                    .hasRootCauseMessage("You cannot purchase your own post");
+                    {
+                      "buyerId": %d,
+                      "postId": %d
+                    }
+                    """.formatted(user.getId(), post.getId())))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(result ->
+                            assertThat(result.getResponse().getErrorMessage())
+                                    .isEqualTo("You cannot purchase your own post")
+                    );
 
             AppUser updatedUser = userRepo.findById(user.getId()).orElseThrow();
 
@@ -237,7 +240,7 @@ class PurchaseIntegrationTest extends IntegrationTestBase {
         }
 
         @Test
-        void purchasePost_nonBusinessUserCannotPurchase() {
+        void purchasePost_nonBusinessUserCannotPurchase() throws Exception {
             AppUser buyer = saveUser("sellerTryingToBuy", Role.SELLER, BigDecimal.valueOf(100));
             AppUser seller = saveUser("seller1", Role.SELLER, BigDecimal.ZERO);
 
@@ -250,18 +253,19 @@ class PurchaseIntegrationTest extends IntegrationTestBase {
                     BigDecimal.valueOf(30)
             );
 
-            assertThatThrownBy(() ->
-                    mockMvc.perform(post("/api/purchase")
+            mockMvc.perform(post("/api/purchase")
                             .contentType(APPLICATION_JSON)
                             .content("""
-                        {
-                          "buyerId": %d,
-                          "postId": %d
-                        }
-                        """.formatted(buyer.getId(), post.getId())))
-            )
-                    .hasRootCauseInstanceOf(RuntimeException.class)
-                    .hasRootCauseMessage("Only business users can purchase posts");
+                {
+                  "buyerId": %d,
+                  "postId": %d
+                }
+                """.formatted(buyer.getId(), post.getId())))
+                    .andExpect(status().isForbidden())
+                    .andExpect(result ->
+                            assertThat(result.getResponse().getErrorMessage())
+                                    .isEqualTo("Only business users can purchase posts")
+                    );
 
             assertThat(purchaseRepo.findAll()).isEmpty();
             assertThat(transactionRepo.findAll()).isEmpty();

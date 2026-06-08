@@ -33,6 +33,12 @@ jobs:
       DB_PASSWORD: 123456
       JWT_SECRET: test-secret-key-for-github-actions-at-least-32-characters-long
 
+      SUPABASE_STORAGE_ENDPOINT: https://example.supabase.co/storage/v1/s3
+      SUPABASE_STORAGE_REGION: ap-southeast-1
+      SUPABASE_STORAGE_ACCESS_KEY: dummy-access-key
+      SUPABASE_STORAGE_SECRET_KEY: dummy-secret-key
+      SUPABASE_STORAGE_BUCKET: yelos-test
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4

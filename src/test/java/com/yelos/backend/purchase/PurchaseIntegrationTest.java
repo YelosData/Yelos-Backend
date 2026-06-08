@@ -1,5 +1,3 @@
-// src/test/java/com/yelos/backend/purchase/PurchaseIntegrationTest.java
-
 package com.yelos.backend.purchase;
 
 import com.yelos.backend.datapost.models.DataPost;
@@ -7,26 +5,36 @@ import com.yelos.backend.datapost.models.DataPostStatus;
 import com.yelos.backend.datapost.models.Genre;
 import com.yelos.backend.IntegrationTestBase;
 import com.yelos.backend.purchase.models.Purchase;
+import com.yelos.backend.storage.services.StorageDownloadService;
 import com.yelos.backend.transaction.models.Transaction;
 import com.yelos.backend.transaction.models.TransactionType;
 import com.yelos.backend.user.models.AppUser;
 import com.yelos.backend.user.models.Role;
+import com.yelos.backend.security.AuthUserPrincipal;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.when;
 import static org.springframework.http.MediaType.APPLICATION_JSON;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 class PurchaseIntegrationTest extends IntegrationTestBase {
+
+    @MockitoBean
+    private StorageDownloadService storageDownloadService;
 
     @Nested
     class PurchasePostTests {
@@ -40,7 +48,6 @@ class PurchaseIntegrationTest extends IntegrationTestBase {
                     seller,
                     Genre.CODING,
                     "Coding Dataset",
-                    "Full coding content",
                     "Coding summary",
                     BigDecimal.valueOf(30)
             );
@@ -59,9 +66,12 @@ class PurchaseIntegrationTest extends IntegrationTestBase {
                     .andExpect(jsonPath("$.postId").value(post.getId()))
                     .andExpect(jsonPath("$.price").value(30))
                     .andExpect(jsonPath("$.buyerCredits").value(70))
+                    .andExpect(jsonPath("$.genre").value("CODING"))
                     .andExpect(jsonPath("$.titleSnapshot").value("Coding Dataset"))
                     .andExpect(jsonPath("$.summarySnapshot").value("Coding summary"))
-                    .andExpect(jsonPath("$.contentSnapshot").value("Full coding content"))
+                    .andExpect(jsonPath("$.fileNameSnapshot").value("test.csv"))
+                    .andExpect(jsonPath("$.fileTypeSnapshot").value("text/csv"))
+                    .andExpect(jsonPath("$.fileSizeSnapshot").value(36))
                     .andExpect(jsonPath("$.purchasedAt").exists());
 
             AppUser updatedBuyer = userRepo.findById(buyer.getId()).orElseThrow();
@@ -77,7 +87,7 @@ class PurchaseIntegrationTest extends IntegrationTestBase {
 
             assertThat(purchases).hasSize(1);
 
-            Purchase savedPurchase = purchases.get(0);
+            Purchase savedPurchase = purchases.getFirst();
 
             assertThat(savedPurchase.getBuyer().getId()).isEqualTo(buyer.getId());
             assertThat(savedPurchase.getSeller().getId()).isEqualTo(seller.getId());
@@ -85,7 +95,6 @@ class PurchaseIntegrationTest extends IntegrationTestBase {
             assertThat(savedPurchase.getPricePaid()).isEqualByComparingTo(BigDecimal.valueOf(30));
             assertThat(savedPurchase.getTitleSnapshot()).isEqualTo("Coding Dataset");
             assertThat(savedPurchase.getSummarySnapshot()).isEqualTo("Coding summary");
-            assertThat(savedPurchase.getContentSnapshot()).isEqualTo("Full coding content");
 
             List<Transaction> transactions = transactionRepo.findAll();
 
@@ -117,7 +126,6 @@ class PurchaseIntegrationTest extends IntegrationTestBase {
                     seller,
                     Genre.CODING,
                     "Coding Dataset",
-                    "Full coding content",
                     "Coding summary",
                     BigDecimal.valueOf(30)
             );
@@ -158,7 +166,6 @@ class PurchaseIntegrationTest extends IntegrationTestBase {
                     seller,
                     Genre.CODING,
                     "Coding Dataset",
-                    "Full coding content",
                     "Coding summary",
                     BigDecimal.valueOf(30)
             );
@@ -211,7 +218,6 @@ class PurchaseIntegrationTest extends IntegrationTestBase {
                     user,
                     Genre.CODING,
                     "Own Dataset",
-                    "Own content",
                     "Own summary",
                     BigDecimal.valueOf(30)
             );
@@ -248,7 +254,6 @@ class PurchaseIntegrationTest extends IntegrationTestBase {
                     seller,
                     Genre.CODING,
                     "Coding Dataset",
-                    "Full coding content",
                     "Coding summary",
                     BigDecimal.valueOf(30)
             );
@@ -284,7 +289,6 @@ class PurchaseIntegrationTest extends IntegrationTestBase {
                     seller,
                     Genre.CODING,
                     "Coding Dataset",
-                    "Full coding content",
                     "Coding summary",
                     BigDecimal.valueOf(30)
             );
@@ -310,9 +314,12 @@ class PurchaseIntegrationTest extends IntegrationTestBase {
                     .andExpect(jsonPath("$.content[0].buyerId").value(buyer.getId()))
                     .andExpect(jsonPath("$.content[0].sellerId").value(seller.getId()))
                     .andExpect(jsonPath("$.content[0].postId").value(post.getId()))
+                    .andExpect(jsonPath("$.content[0].genre").value("CODING"))
                     .andExpect(jsonPath("$.content[0].titleSnapshot").value("Coding Dataset"))
                     .andExpect(jsonPath("$.content[0].summarySnapshot").value("Coding summary"))
-                    .andExpect(jsonPath("$.content[0].contentSnapshot").value("Full coding content"))
+                    .andExpect(jsonPath("$.content[0].fileNameSnapshot").value("test.csv"))
+                    .andExpect(jsonPath("$.content[0].fileTypeSnapshot").value("text/csv"))
+                    .andExpect(jsonPath("$.content[0].fileSizeSnapshot").value(36))
                     .andExpect(jsonPath("$.page").value(0))
                     .andExpect(jsonPath("$.size").value(6))
                     .andExpect(jsonPath("$.totalElements").value(1))
@@ -328,7 +335,6 @@ class PurchaseIntegrationTest extends IntegrationTestBase {
                     seller,
                     Genre.CODING,
                     "Coding Dataset",
-                    "Full coding content",
                     "Coding summary",
                     BigDecimal.valueOf(30)
             );
@@ -350,9 +356,61 @@ class PurchaseIntegrationTest extends IntegrationTestBase {
                     .andExpect(jsonPath("$[0].buyerId").value(buyer.getId()))
                     .andExpect(jsonPath("$[0].sellerId").value(seller.getId()))
                     .andExpect(jsonPath("$[0].postId").value(post.getId()))
+                    .andExpect(jsonPath("$[0].genre").value("CODING"))
                     .andExpect(jsonPath("$[0].titleSnapshot").value("Coding Dataset"))
                     .andExpect(jsonPath("$[0].summarySnapshot").value("Coding summary"))
-                    .andExpect(jsonPath("$[0].contentSnapshot").value("Full coding content"));
+                    .andExpect(jsonPath("$[0].fileNameSnapshot").value("test.csv"))
+                    .andExpect(jsonPath("$[0].fileTypeSnapshot").value("text/csv"))
+                    .andExpect(jsonPath("$[0].fileSizeSnapshot").value(36));
+        }
+    }
+
+    @Nested
+    class PurchaseDownloadTests {
+        @Test
+        void downloadPurchasedFile_validBuyer_returnsSignedDownloadResponse() throws Exception {
+            AppUser buyer = saveUser("buyer1", Role.BUSINESS, BigDecimal.valueOf(100));
+            AppUser seller = saveUser("seller1", Role.SELLER, BigDecimal.ZERO);
+            DataPost post = savePost(
+                    seller,
+                    Genre.CODING,
+                    "Coding Dataset",
+                    "Coding summary",
+                    BigDecimal.valueOf(30)
+            );
+            mockMvc.perform(post("/api/purchase")
+                    .contentType(APPLICATION_JSON)
+                    .content(""" 
+                            { "buyerId": %d, "postId": %d }"""
+                            .formatted(buyer.getId(), post.getId())))
+                    .andExpect(status().isOk());
+            Purchase savedPurchase = purchaseRepo.findByBuyerId(buyer.getId()).getFirst();
+            when(storageDownloadService.generateDownloadUrl(
+                    savedPurchase.getBucketNameSnapshot(),
+                    savedPurchase.getObjectKeySnapshot(),
+                    savedPurchase.getFileNameSnapshot()))
+                    .thenReturn("https://signed-url.example.com");
+            AuthUserPrincipal principal = new AuthUserPrincipal(
+                    buyer.getId(),
+                    buyer.getUsername(),
+                    "BUSINESS"
+            );
+            UsernamePasswordAuthenticationToken authentication = new UsernamePasswordAuthenticationToken(
+                    principal,
+                    null,
+                    List.of(new SimpleGrantedAuthority("ROLE_BUSINESS")));
+            try {
+                SecurityContextHolder.getContext().setAuthentication(authentication);
+                mockMvc.perform(get("/api/purchase/{purchaseId}/download", savedPurchase.getId()))
+                        .andExpect(status().isOk())
+                        .andExpect(jsonPath("$.downloadUrl").value("https://signed-url.example.com"))
+                        .andExpect(jsonPath("$.fileName").value("test.csv"))
+                        .andExpect(jsonPath("$.fileType").value("text/csv"))
+                        .andExpect(jsonPath("$.fileSize").value(36))
+                        .andExpect(jsonPath("$.expiresInSeconds").value(300));
+            } finally {
+                SecurityContextHolder.clearContext();
+            }
         }
     }
 
@@ -376,20 +434,27 @@ class PurchaseIntegrationTest extends IntegrationTestBase {
             AppUser seller,
             Genre genre,
             String title,
-            String content,
             String summary,
             BigDecimal price
     ) {
-        return dataPostRepo.save(new DataPost(
-                seller,
-                genre,
-                title,
-                content,
-                summary,
-                price,
-                DataPostStatus.ACTIVE,
-                Instant.now()
-        ));
+        DataPost post = new DataPost();
+        ReflectionTestUtils.setField(post, "user", seller);
+        ReflectionTestUtils.setField(post, "genre", genre);
+        ReflectionTestUtils.setField(post, "title", title);
+        ReflectionTestUtils.setField(post, "summary", summary);
+        ReflectionTestUtils.setField(post, "price", price);
+        ReflectionTestUtils.setField(post, "status", DataPostStatus.ACTIVE);
+        ReflectionTestUtils.setField(post, "createdAt", Instant.now());
+        ReflectionTestUtils.setField(post, "fileName", "test.csv");
+        ReflectionTestUtils.setField(post, "fileType", "text/csv");
+        ReflectionTestUtils.setField(post, "fileSize", 36L);
+        ReflectionTestUtils.setField(post, "bucketName", "yelos-datasets");
+        ReflectionTestUtils.setField( post, "objectKey",  "sellers/" + seller.getId() + "/posts/" + UUID.randomUUID() + "-test.csv");
+        try {
+            ReflectionTestUtils.setField(post, "content", null);
+        } catch (IllegalArgumentException ignored) {}
+
+        return dataPostRepo.save(post);
     }
 
     private Object getField(Object target, String fieldName) {

@@ -42,9 +42,17 @@ public class Purchase {
     private String summarySnapshot;
 
     @Column(columnDefinition = "TEXT")
-    private String contentSnapshot;
+    private String contentSnapshot; // Legacy, we are migrating to bucket storage for files
 
     private Instant purchasedAt;
+
+    private String fileNameSnapshot;
+    private String fileTypeSnapshot;
+    private Long fileSizeSnapshot;
+    private String bucketNameSnapshot;
+
+    @Column(columnDefinition = "TEXT")
+    private String objectKeySnapshot;
 
     public Purchase() {}
 
@@ -55,8 +63,12 @@ public class Purchase {
             BigDecimal pricePaid,
             String titleSnapshot,
             String summarySnapshot,
-            String contentSnapshot,
-            Instant purchasedAt
+            Instant purchasedAt,
+            String fileNameSnapshot,
+            String fileTypeSnapshot,
+            Long fileSizeSnapshot,
+            String bucketNameSnapshot,
+            String objectKeySnapshot
     ) {
         this.buyer = buyer;
         this.seller = seller;
@@ -65,8 +77,12 @@ public class Purchase {
         this.pricePaid = pricePaid;
         this.titleSnapshot = titleSnapshot;
         this.summarySnapshot = summarySnapshot;
-        this.contentSnapshot = contentSnapshot;
         this.purchasedAt = purchasedAt;
+        this.fileNameSnapshot = fileNameSnapshot;
+        this.fileTypeSnapshot = fileTypeSnapshot;
+        this.fileSizeSnapshot = fileSizeSnapshot;
+        this.bucketNameSnapshot = bucketNameSnapshot;
+        this.objectKeySnapshot = objectKeySnapshot;
     }
 
     public Long getId() {
@@ -107,5 +123,22 @@ public class Purchase {
 
     public Instant getPurchasedAt() {
         return this.purchasedAt;
+    }
+
+    public String getFileNameSnapshot() {
+        return this.fileNameSnapshot;
+    }
+    public String getFileTypeSnapshot() {
+        return this.fileTypeSnapshot;
+    }
+    public Long getFileSizeSnapshot() {
+        return this.fileSizeSnapshot;
+    }
+    public String getBucketNameSnapshot() {
+        return this.bucketNameSnapshot;
+    }
+
+    public String getObjectKeySnapshot() {
+        return this.objectKeySnapshot;
     }
 }

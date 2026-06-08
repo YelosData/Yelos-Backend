@@ -60,7 +60,8 @@ public class SecurityConfig {
                         .requestMatchers(
                                 "/api/datapost",
                                 "/api/datapost/user/**"
-                        ).hasRole("SELLER")
+                        ).permitAll()
+                        //hasRole("SELLER")
 
                         .requestMatchers(
                                 "/api/purchase/**",

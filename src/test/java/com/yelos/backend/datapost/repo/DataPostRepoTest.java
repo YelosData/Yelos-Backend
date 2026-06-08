@@ -15,6 +15,7 @@ import org.springframework.data.domain.PageRequest;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -39,7 +40,6 @@ class DataPostRepoTest {
                     seller1,
                     Genre.CODING,
                     "Seller 1 Dataset",
-                    "Content 1",
                     "Summary 1",
                     BigDecimal.valueOf(30)
             ));
@@ -48,7 +48,6 @@ class DataPostRepoTest {
                     seller2,
                     Genre.FINANCE,
                     "Seller 2 Dataset",
-                    "Content 2",
                     "Summary 2",
                     BigDecimal.valueOf(40)
             ));
@@ -61,6 +60,8 @@ class DataPostRepoTest {
             assertThat(result.getContent()).hasSize(1);
             assertThat(result.getContent().get(0).getUser().getId()).isEqualTo(seller1.getId());
             assertThat(result.getContent().get(0).getTitle()).isEqualTo("Seller 1 Dataset");
+            assertThat(result.getContent().get(0).getFileName()).isEqualTo("test.csv");
+            assertThat(result.getContent().get(0).getObjectKey()).isNotBlank();
         }
 
         @Test
@@ -88,7 +89,6 @@ class DataPostRepoTest {
                     seller,
                     Genre.CODING,
                     "Coding Dataset",
-                    "Coding Content",
                     "Coding Summary",
                     BigDecimal.valueOf(30)
             ));
@@ -97,7 +97,6 @@ class DataPostRepoTest {
                     seller,
                     Genre.FINANCE,
                     "Finance Dataset",
-                    "Finance Content",
                     "Finance Summary",
                     BigDecimal.valueOf(40)
             ));
@@ -110,6 +109,8 @@ class DataPostRepoTest {
             assertThat(result.getContent()).hasSize(1);
             assertThat(result.getContent().get(0).getGenre()).isEqualTo(Genre.CODING);
             assertThat(result.getContent().get(0).getTitle()).isEqualTo("Coding Dataset");
+            assertThat(result.getContent().get(0).getFileName()).isEqualTo("test.csv");
+            assertThat(result.getContent().get(0).getBucketName()).isEqualTo("yelos-datasets");
         }
 
         @Test
@@ -120,7 +121,6 @@ class DataPostRepoTest {
                     seller,
                     Genre.CODING,
                     "Coding Dataset",
-                    "Coding Content",
                     "Coding Summary",
                     BigDecimal.valueOf(30)
             ));
@@ -154,7 +154,6 @@ class DataPostRepoTest {
             AppUser user,
             Genre genre,
             String title,
-            String content,
             String summary,
             BigDecimal price
     ) {
@@ -162,11 +161,15 @@ class DataPostRepoTest {
                 user,
                 genre,
                 title,
-                content,
                 summary,
                 price,
                 DataPostStatus.ACTIVE,
-                Instant.now()
+                Instant.now(),
+                "test.csv",
+                "text/csv",
+                36L,
+                "yelos-datasets",
+                "sellers/" + user.getId() + "/posts/" + UUID.randomUUID() + "-test.csv"
         );
     }
 }

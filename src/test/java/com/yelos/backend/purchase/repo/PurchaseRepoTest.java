@@ -1,6 +1,7 @@
 package com.yelos.backend.purchase.repo;
 
 import com.yelos.backend.datapost.models.DataPost;
+import com.yelos.backend.datapost.models.DataPostStatus;
 import com.yelos.backend.datapost.models.Genre;
 import com.yelos.backend.datapost.repo.DataPostRepo;
 import com.yelos.backend.purchase.models.Purchase;
@@ -19,6 +20,8 @@ import org.springframework.test.util.ReflectionTestUtils;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -55,7 +58,6 @@ class PurchaseRepoTest {
                     seller,
                     "Coding Dataset",
                     "Coding Summary",
-                    "Coding Content",
                     BigDecimal.valueOf(30),
                     Genre.CODING
             ));
@@ -67,7 +69,6 @@ class PurchaseRepoTest {
                     BigDecimal.valueOf(30),
                     "Coding Dataset",
                     "Coding Summary",
-                    "Coding Content",
                     Genre.CODING
             );
 
@@ -99,7 +100,6 @@ class PurchaseRepoTest {
                     seller,
                     "Coding Dataset",
                     "Coding Summary",
-                    "Coding Content",
                     BigDecimal.valueOf(30),
                     Genre.CODING
             ));
@@ -140,7 +140,6 @@ class PurchaseRepoTest {
                     seller,
                     "Coding Dataset",
                     "Coding Summary",
-                    "Coding Content",
                     BigDecimal.valueOf(30),
                     Genre.CODING
             ));
@@ -149,7 +148,6 @@ class PurchaseRepoTest {
                     seller,
                     "Finance Dataset",
                     "Finance Summary",
-                    "Finance Content",
                     BigDecimal.valueOf(40),
                     Genre.FINANCE
             ));
@@ -161,7 +159,6 @@ class PurchaseRepoTest {
                     BigDecimal.valueOf(30),
                     "Coding Dataset",
                     "Coding Summary",
-                    "Coding Content",
                     Genre.CODING
             ));
 
@@ -172,7 +169,6 @@ class PurchaseRepoTest {
                     BigDecimal.valueOf(40),
                     "Finance Dataset",
                     "Finance Summary",
-                    "Finance Content",
                     Genre.FINANCE
             ));
 
@@ -181,6 +177,8 @@ class PurchaseRepoTest {
             assertThat(result).hasSize(1);
             assertThat(result.get(0).getBuyer().getId()).isEqualTo(buyer1.getId());
             assertThat(result.get(0).getTitleSnapshot()).isEqualTo("Coding Dataset");
+            assertThat(result.get(0).getFileNameSnapshot()).isEqualTo("test.csv");
+            assertThat(result.get(0).getObjectKeySnapshot()).isNotBlank();
         }
 
         @Test
@@ -218,7 +216,6 @@ class PurchaseRepoTest {
                     seller,
                     "Coding Dataset",
                     "Coding Summary",
-                    "Coding Content",
                     BigDecimal.valueOf(30),
                     Genre.CODING
             ));
@@ -227,7 +224,6 @@ class PurchaseRepoTest {
                     seller,
                     "Finance Dataset",
                     "Finance Summary",
-                    "Finance Content",
                     BigDecimal.valueOf(40),
                     Genre.FINANCE
             ));
@@ -239,7 +235,6 @@ class PurchaseRepoTest {
                     BigDecimal.valueOf(30),
                     "Coding Dataset",
                     "Coding Summary",
-                    "Coding Content",
                     Genre.CODING
             ));
 
@@ -250,7 +245,6 @@ class PurchaseRepoTest {
                     BigDecimal.valueOf(40),
                     "Finance Dataset",
                     "Finance Summary",
-                    "Finance Content",
                     Genre.FINANCE
             ));
 
@@ -282,7 +276,6 @@ class PurchaseRepoTest {
                     seller,
                     "Coding Dataset",
                     "Coding Summary",
-                    "Coding Content",
                     BigDecimal.valueOf(30),
                     Genre.CODING
             ));
@@ -291,7 +284,6 @@ class PurchaseRepoTest {
                     seller,
                     "Finance Dataset",
                     "Finance Summary",
-                    "Finance Content",
                     BigDecimal.valueOf(40),
                     Genre.FINANCE
             ));
@@ -303,7 +295,6 @@ class PurchaseRepoTest {
                     BigDecimal.valueOf(30),
                     "Coding Dataset",
                     "Coding Summary",
-                    "Coding Content",
                     Genre.CODING
             ));
 
@@ -314,7 +305,6 @@ class PurchaseRepoTest {
                     BigDecimal.valueOf(40),
                     "Finance Dataset",
                     "Finance Summary",
-                    "Finance Content",
                     Genre.FINANCE
             ));
 
@@ -328,6 +318,7 @@ class PurchaseRepoTest {
             assertThat(result.getTotalElements()).isEqualTo(1);
             assertThat(result.getContent().get(0).getGenre()).isEqualTo(Genre.CODING);
             assertThat(result.getContent().get(0).getTitleSnapshot()).isEqualTo("Coding Dataset");
+            assertThat(result.getContent().get(0).getFileNameSnapshot()).isEqualTo("test.csv");
         }
 
         @Test
@@ -354,7 +345,6 @@ class PurchaseRepoTest {
                     seller,
                     "Buyer 1 Coding Dataset",
                     "Summary",
-                    "Content",
                     BigDecimal.valueOf(30),
                     Genre.CODING
             ));
@@ -363,7 +353,6 @@ class PurchaseRepoTest {
                     seller,
                     "Buyer 2 Coding Dataset",
                     "Summary",
-                    "Content",
                     BigDecimal.valueOf(40),
                     Genre.CODING
             ));
@@ -375,7 +364,6 @@ class PurchaseRepoTest {
                     BigDecimal.valueOf(30),
                     "Buyer 1 Coding Dataset",
                     "Summary",
-                    "Content",
                     Genre.CODING
             ));
 
@@ -386,7 +374,6 @@ class PurchaseRepoTest {
                     BigDecimal.valueOf(40),
                     "Buyer 2 Coding Dataset",
                     "Summary",
-                    "Content",
                     Genre.CODING
             ));
 
@@ -419,7 +406,6 @@ class PurchaseRepoTest {
                     seller,
                     "Coding Dataset 1",
                     "Summary 1",
-                    "Content 1",
                     BigDecimal.valueOf(30),
                     Genre.CODING
             ));
@@ -428,7 +414,6 @@ class PurchaseRepoTest {
                     seller,
                     "Coding Dataset 2",
                     "Summary 2",
-                    "Content 2",
                     BigDecimal.valueOf(40),
                     Genre.CODING
             ));
@@ -440,7 +425,6 @@ class PurchaseRepoTest {
                     BigDecimal.valueOf(30),
                     "Coding Dataset 1",
                     "Summary 1",
-                    "Content 1",
                     Genre.CODING
             ));
 
@@ -451,7 +435,6 @@ class PurchaseRepoTest {
                     BigDecimal.valueOf(40),
                     "Coding Dataset 2",
                     "Summary 2",
-                    "Content 2",
                     Genre.CODING
             ));
 
@@ -489,7 +472,6 @@ class PurchaseRepoTest {
             AppUser seller,
             String title,
             String summary,
-            String content,
             BigDecimal price,
             Genre genre
     ) {
@@ -498,18 +480,19 @@ class PurchaseRepoTest {
         ReflectionTestUtils.setField(post, "user", seller);
         ReflectionTestUtils.setField(post, "title", title);
         ReflectionTestUtils.setField(post, "summary", summary);
-        ReflectionTestUtils.setField(post, "content", content);
         ReflectionTestUtils.setField(post, "price", price);
         ReflectionTestUtils.setField(post, "genre", genre);
         ReflectionTestUtils.setField(post, "createdAt", Instant.now());
 
-        /*
-         * If your DataPost.status is nullable, this line is not needed.
-         * If your DataPost.status is NOT nullable, uncomment and change
-         * "PUBLISHED" to the correct enum/value used in your project.
-         *
-         * ReflectionTestUtils.setField(post, "status", DataPostStatus.PUBLISHED);
-         */
+        ReflectionTestUtils.setField(post, "fileName", "test.csv");
+        ReflectionTestUtils.setField(post, "fileType", "text/csv");
+        ReflectionTestUtils.setField(post, "fileSize", 36L);
+        ReflectionTestUtils.setField(post, "bucketName", "yelos-datasets");
+        ReflectionTestUtils.setField(
+                post,
+                "objectKey",
+                "sellers/" + seller.getId() + "/posts/" + UUID.randomUUID() + "-test.csv"
+        );
 
         return post;
     }
@@ -521,21 +504,26 @@ class PurchaseRepoTest {
             BigDecimal price,
             String titleSnapshot,
             String summarySnapshot,
-            String contentSnapshot,
             Genre genre
     ) {
-        Purchase purchase = new Purchase(
-                buyer,
-                seller,
-                post,
-                price,
-                titleSnapshot,
-                summarySnapshot,
-                contentSnapshot,
-                Instant.now()
-        );
+        Purchase purchase = BeanUtils.instantiateClass(Purchase.class);
 
+        ReflectionTestUtils.setField(purchase, "buyer", buyer);
+        ReflectionTestUtils.setField(purchase, "seller", seller);
+        ReflectionTestUtils.setField(purchase, "post", post);
+        ReflectionTestUtils.setField(purchase, "pricePaid", price);
         ReflectionTestUtils.setField(purchase, "genre", genre);
+
+        ReflectionTestUtils.setField(purchase, "titleSnapshot", titleSnapshot);
+        ReflectionTestUtils.setField(purchase, "summarySnapshot", summarySnapshot);
+
+        ReflectionTestUtils.setField(purchase, "fileNameSnapshot", post.getFileName());
+        ReflectionTestUtils.setField(purchase, "fileTypeSnapshot", post.getFileType());
+        ReflectionTestUtils.setField(purchase, "fileSizeSnapshot", post.getFileSize());
+        ReflectionTestUtils.setField(purchase, "bucketNameSnapshot", post.getBucketName());
+        ReflectionTestUtils.setField(purchase, "objectKeySnapshot", post.getObjectKey());
+
+        ReflectionTestUtils.setField(purchase, "purchasedAt", Instant.now());
 
         return purchase;
     }

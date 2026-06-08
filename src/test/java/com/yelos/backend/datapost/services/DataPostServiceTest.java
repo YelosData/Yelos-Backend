@@ -2,12 +2,13 @@ package com.yelos.backend.datapost.services;
 
 import com.yelos.backend.datapost.dto.DataPostPreviewResponse;
 import com.yelos.backend.datapost.dto.DataPostResponse;
-import com.yelos.backend.datapost.dto.PostRequest;
 import com.yelos.backend.datapost.models.DataPost;
 import com.yelos.backend.datapost.models.DataPostStatus;
 import com.yelos.backend.datapost.models.Genre;
 import com.yelos.backend.datapost.repo.DataPostRepo;
 import com.yelos.backend.globaldto.PageResponse;
+import com.yelos.backend.storage.dto.StoredFile;
+import com.yelos.backend.storage.services.StorageService;
 import com.yelos.backend.user.models.AppUser;
 import com.yelos.backend.user.models.Role;
 import com.yelos.backend.user.repo.UserRepo;
@@ -20,6 +21,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
+import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.math.BigDecimal;
@@ -40,6 +42,9 @@ class DataPostServiceTest {
     @Mock
     private UserRepo userRepo;
 
+    @Mock
+    private StorageService storageService;
+
     @InjectMocks
     private DataPostService dataPostService;
 
@@ -47,7 +52,7 @@ class DataPostServiceTest {
     class PostDataPostsTests {
 
         @Test
-        void postDataPosts_validRequest_savesPostAndReturnsResponse() {
+        void postDataPosts_validRequest_uploadsFileSavesPostAndReturnsResponse() {
             Long userId = 1L;
 
             AppUser seller = user(
@@ -57,16 +62,19 @@ class DataPostServiceTest {
                     BigDecimal.ZERO
             );
 
-            PostRequest request = new PostRequest(
-                    userId,
-                    "Coding Dataset",
-                    "Full coding content",
-                    "Coding summary",
-                    BigDecimal.valueOf(30),
-                    Genre.CODING
+            MockMultipartFile file = datasetFile();
+
+            StoredFile storedFile = new StoredFile(
+                    "yelos-datasets",
+                    "sellers/1/posts/test-file.csv",
+                    "test.csv",
+                    "text/csv",
+                    36L,
+                    Instant.now()
             );
 
             when(userRepo.findById(userId)).thenReturn(Optional.of(seller));
+            when(storageService.uploadDatasetFile(userId, file)).thenReturn(storedFile);
 
             when(dataPostRepo.save(any(DataPost.class))).thenAnswer(invocation -> {
                 DataPost savedPost = invocation.getArgument(0);
@@ -74,52 +82,65 @@ class DataPostServiceTest {
                 return savedPost;
             });
 
-            DataPostResponse response = dataPostService.postDataPosts(request);
+            DataPostResponse response = dataPostService.postDataPosts(
+                    userId,
+                    "Coding Dataset",
+                    "Coding summary",
+                    BigDecimal.valueOf(30),
+                    Genre.CODING,
+                    file
+            );
 
             assertThat(response.id()).isEqualTo(10L);
             assertThat(response.userId()).isEqualTo(userId);
             assertThat(response.username()).isEqualTo("seller1");
             assertThat(response.title()).isEqualTo("Coding Dataset");
             assertThat(response.summary()).isEqualTo("Coding summary");
-            assertThat(response.content()).isEqualTo("Full coding content");
             assertThat(response.genre()).isEqualTo(Genre.CODING);
             assertThat(response.price()).isEqualByComparingTo(BigDecimal.valueOf(30));
             assertThat(response.createdAt()).isNotNull();
+            assertThat(response.fileName()).isEqualTo("test.csv");
+            assertThat(response.fileType()).isEqualTo("text/csv");
+            assertThat(response.fileSize()).isEqualTo(36L);
 
             verify(userRepo).findById(userId);
+            verify(storageService).uploadDatasetFile(userId, file);
 
             verify(dataPostRepo).save(argThat(post ->
                     post.getUser().equals(seller)
                             && post.getGenre() == Genre.CODING
                             && post.getTitle().equals("Coding Dataset")
-                            && post.getContent().equals("Full coding content")
                             && post.getSummary().equals("Coding summary")
                             && post.getPrice().compareTo(BigDecimal.valueOf(30)) == 0
                             && post.getStatus() == DataPostStatus.ACTIVE
+                            && post.getFileName().equals("test.csv")
+                            && post.getFileType().equals("text/csv")
+                            && post.getFileSize().equals(36L)
+                            && post.getBucketName().equals("yelos-datasets")
+                            && post.getObjectKey().equals("sellers/1/posts/test-file.csv")
             ));
         }
 
         @Test
-        void postDataPosts_userNotFound_throwsException() {
+        void postDataPosts_userNotFound_throwsExceptionAndDoesNotUploadFile() {
             Long userId = 1L;
-
-            PostRequest request = new PostRequest(
-                    userId,
-                    "Coding Dataset",
-                    "Full coding content",
-                    "Coding summary",
-                    BigDecimal.valueOf(30),
-                    Genre.CODING
-            );
+            MockMultipartFile file = datasetFile();
 
             when(userRepo.findById(userId)).thenReturn(Optional.empty());
 
-            assertThatThrownBy(() -> dataPostService.postDataPosts(request))
+            assertThatThrownBy(() -> dataPostService.postDataPosts(  userId,
+                    "Coding Dataset",
+                    "Coding summary",
+                    BigDecimal.valueOf(30),
+                    Genre.CODING,
+                    file
+            ))
                     .isInstanceOf(RuntimeException.class)
-                    .hasMessage("User does not exists");
+                    .hasMessage("User does not exist");
 
             verify(userRepo).findById(userId);
             verifyNoInteractions(dataPostRepo);
+            verifyNoInteractions(storageService);
         }
     }
 
@@ -149,12 +170,12 @@ class DataPostServiceTest {
             assertThat(response.username()).isEqualTo("seller1");
             assertThat(response.title()).isEqualTo("Coding Dataset");
             assertThat(response.summary()).isEqualTo("Coding summary");
-            assertThat(response.content()).isEqualTo("Full coding content");
             assertThat(response.genre()).isEqualTo(Genre.CODING);
             assertThat(response.price()).isEqualByComparingTo(BigDecimal.valueOf(30));
 
             verify(dataPostRepo).findById(10L);
             verifyNoInteractions(userRepo);
+            verifyNoInteractions(storageService);
         }
 
         @Test
@@ -167,6 +188,7 @@ class DataPostServiceTest {
 
             verify(dataPostRepo).findById(10L);
             verifyNoInteractions(userRepo);
+            verifyNoInteractions(storageService);
         }
     }
 
@@ -215,6 +237,7 @@ class DataPostServiceTest {
 
             verify(dataPostRepo, never()).findByGenre(any(), any(Pageable.class));
             verifyNoInteractions(userRepo);
+            verifyNoInteractions(storageService);
         }
 
         @Test
@@ -259,6 +282,7 @@ class DataPostServiceTest {
 
             verify(dataPostRepo, never()).findAll(any(Pageable.class));
             verifyNoInteractions(userRepo);
+            verifyNoInteractions(storageService);
         }
 
         @Test
@@ -319,6 +343,9 @@ class DataPostServiceTest {
             assertThat(response.content().get(0).id()).isEqualTo(10L);
             assertThat(response.content().get(0).userId()).isEqualTo(userId);
             assertThat(response.content().get(0).title()).isEqualTo("Coding Dataset");
+            assertThat(response.content().get(0).fileName()).isEqualTo("test.csv");
+            assertThat(response.content().get(0).fileType()).isEqualTo("text/csv");
+            assertThat(response.content().get(0).fileSize()).isEqualTo(36L);
 
             verify(userRepo).findById(userId);
 
@@ -331,6 +358,8 @@ class DataPostServiceTest {
                                     && pageable.getSort().getOrderFor("createdAt").isAscending()
                     )
             );
+
+            verifyNoInteractions(storageService);
         }
 
         @Test
@@ -347,7 +376,17 @@ class DataPostServiceTest {
 
             verify(userRepo).findById(userId);
             verifyNoInteractions(dataPostRepo);
+            verifyNoInteractions(storageService);
         }
+    }
+
+    private MockMultipartFile datasetFile() {
+        return new MockMultipartFile(
+                "file",
+                "test.csv",
+                "text/csv",
+                "id,name,value\n1,Alice,100\n2,Bob,200".getBytes()
+        );
     }
 
     private AppUser user(
@@ -384,11 +423,15 @@ class DataPostServiceTest {
                 user,
                 genre,
                 title,
-                content,
                 summary,
-                price,
+                price   ,
                 DataPostStatus.ACTIVE,
-                Instant.now()
+                Instant.now(),
+                "test.csv",
+                "text/csv",
+                36L,
+                "yelos-datasets",
+                "sellers/1/posts/test-file.csv"
         );
 
         ReflectionTestUtils.setField(post, "id", id);

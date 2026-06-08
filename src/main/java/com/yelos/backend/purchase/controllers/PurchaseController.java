@@ -3,7 +3,10 @@ package com.yelos.backend.purchase.controllers;
 import com.yelos.backend.globaldto.PageResponse;
 import com.yelos.backend.purchase.dto.PurchasePostRequest;
 import com.yelos.backend.purchase.dto.PurchaseResponse;
+import com.yelos.backend.purchase.dto.PurchaseDownloadResponse;
 import com.yelos.backend.purchase.services.PurchaseService;
+import com.yelos.backend.security.AuthUserPrincipal;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -35,5 +38,16 @@ public class PurchaseController {
     @GetMapping("/users/{userId}/posts")
     public List<PurchaseResponse> getPurchasesByUserId(@PathVariable Long userId) {
         return purchaseService.getPurchasesByUserId(userId);
+    }
+
+    @GetMapping("/{purchaseId}/download")
+    public PurchaseDownloadResponse downloadPurchasedFile(
+            @PathVariable Long purchaseId,
+            @AuthenticationPrincipal AuthUserPrincipal principal
+    ) {
+        return purchaseService.generatePurchaseDownloadUrl(
+                purchaseId,
+                principal.userId()
+        );
     }
 }

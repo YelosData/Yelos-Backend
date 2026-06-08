@@ -7,8 +7,11 @@ import com.yelos.backend.datapost.services.DataPostService;
 import com.yelos.backend.datapost.dto.DataPostResponse;
 import com.yelos.backend.datapost.dto.PostRequest;
 import com.yelos.backend.globaldto.PageResponse;
+import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
+import java.math.BigDecimal;
 import java.util.List;
 
 @RestController
@@ -20,9 +23,23 @@ public class DataPostController {
         this.dataPostService = dataPostService;
     }
 
-    @PostMapping
-    public DataPostResponse createPost(@RequestBody PostRequest request) {
-        return dataPostService.postDataPosts(request);
+    @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public DataPostResponse createPost(
+            @RequestParam Long userId,
+            @RequestParam String title,
+            @RequestParam String summary,
+            @RequestParam BigDecimal price,
+            @RequestParam Genre genre,
+            @RequestParam MultipartFile file
+    ) {
+        return dataPostService.postDataPosts(
+                userId,
+                title,
+                summary,
+                price,
+                genre,
+                file
+        );
     }
 
     @GetMapping("/marketplace")

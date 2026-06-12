@@ -6,14 +6,17 @@ import java.math.BigDecimal;
 import java.time.Instant;
 
 public record DataPostResponse(
-        long id,
-        long userId,
+        Long id,
+        Long userId,
         String username,
         String title,
         String summary,
-        String content,
         Genre genre,
         BigDecimal price,
-        Instant createdAt
+        Instant createdAt,
+
+        String fileName,
+        String fileType,
+        Long fileSize
 ) {
 }

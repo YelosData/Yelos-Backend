@@ -9,6 +9,8 @@ import com.yelos.backend.datapost.models.DataPostStatus;
 import com.yelos.backend.datapost.models.Genre;
 import com.yelos.backend.datapost.repo.DataPostRepo;
 import com.yelos.backend.globaldto.PageResponse;
+import com.yelos.backend.storage.dto.StoredFile;
+import com.yelos.backend.storage.services.StorageService;
 import com.yelos.backend.user.models.AppUser;
 import com.yelos.backend.user.repo.UserRepo;
 import org.springframework.data.domain.Page;
@@ -16,6 +18,9 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
+import org.springframework.web.multipart.MultipartFile;
+
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
 
@@ -24,38 +29,46 @@ import java.util.List;
 public class DataPostService {
     private final DataPostRepo dataPostRepo;
     private final UserRepo userRepo;
+    private final StorageService storageService;
 
-    public DataPostService(UserRepo userRepo, DataPostRepo dataPostRepo){
+    public DataPostService(UserRepo userRepo, DataPostRepo dataPostRepo, StorageService storageService){
         this.userRepo = userRepo;
         this.dataPostRepo = dataPostRepo;
+        this.storageService = storageService;
     }
 
 
-    public DataPostResponse postDataPosts(PostRequest request){
-        AppUser user = userRepo.findById(request.userId()).orElseThrow(() -> new RuntimeException("User does not exists"));
-        Genre genre = request.genre();
+    public DataPostResponse postDataPosts(
+            Long userId,
+            String title,
+            String summary,
+            BigDecimal price,
+            Genre genre,
+            MultipartFile file
+    ) {
+        AppUser user = userRepo.findById(userId)
+                .orElseThrow(() -> new RuntimeException("User does not exist"));
+
+        StoredFile storedFile = storageService.uploadDatasetFile(user.getId(), file);
+
         DataPost post = new DataPost(
                 user,
                 genre,
-                request.title(),
-                request.content(),
-                request.summary(),
-                request.price(),
+                title,
+                summary,
+                price,
                 DataPostStatus.ACTIVE,
-                Instant.now()
+                Instant.now(),
+                storedFile.fileName(),
+                storedFile.fileType(),
+                storedFile.fileSize(),
+                storedFile.bucketName(),
+                storedFile.objectKey()
         );
+
         DataPost savedPost = dataPostRepo.save(post);
-        return new DataPostResponse(
-                post.getId(),
-                user.getId(),
-                user.getUsername(),
-                post.getTitle(),
-                post.getSummary(),
-                post.getContent(),
-                post.getGenre(),
-                post.getPrice(),
-                post.getCreatedAt()
-        );
+
+        return toDataPostResponse(savedPost);
     }
 
     // Not in use for now
@@ -176,10 +189,12 @@ public class DataPostService {
                 post.getUser().getUsername(),
                 post.getTitle(),
                 post.getSummary(),
-                post.getContent(),
                 post.getGenre(),
                 post.getPrice(),
-                post.getCreatedAt()
+                post.getCreatedAt(),
+                post.getFileName(),
+                post.getFileType(),
+                post.getFileSize()
         );
     }
 }

@@ -4,6 +4,8 @@ package com.yelos.backend;
 import com.yelos.backend.datapost.repo.DataPostRepo;
 import com.yelos.backend.purchase.repo.PurchaseRepo;
 import com.yelos.backend.transaction.repo.TransactionRepo;
+import com.yelos.backend.request_marketplace.repo.DatasetRequestRepo;
+import com.yelos.backend.request_marketplace.repo.RequestSubmissionRepo;
 import com.yelos.backend.user.repo.UserRepo;
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -61,8 +63,16 @@ public abstract class IntegrationTestBase {
     @Autowired
     protected TransactionRepo transactionRepo;
 
+    @Autowired
+    protected DatasetRequestRepo datasetRequestRepo;
+
+    @Autowired
+    protected RequestSubmissionRepo requestSubmissionRepo;
+
     @BeforeEach
     void cleanDatabase() {
+        requestSubmissionRepo.deleteAll();
+        datasetRequestRepo.deleteAll();
         transactionRepo.deleteAll();
         purchaseRepo.deleteAll();
         dataPostRepo.deleteAll();

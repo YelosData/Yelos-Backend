@@ -5,21 +5,33 @@ import com.yelos.backend.IntegrationTestBase;
 import com.yelos.backend.datapost.models.DataPost;
 import com.yelos.backend.datapost.models.DataPostStatus;
 import com.yelos.backend.datapost.models.Genre;
+import com.yelos.backend.storage.dto.StoredFile;
+import com.yelos.backend.storage.services.StorageService;
 import com.yelos.backend.user.models.AppUser;
 import com.yelos.backend.user.models.Role;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.springframework.mock.web.MockMultipartFile;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.*;
 import static org.springframework.http.MediaType.APPLICATION_JSON;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.when;
+
 class DataPostIntegrationTest extends IntegrationTestBase {
+
+    @MockitoBean
+    private StorageService storageService;
 
     @Nested
     class CreatePostTests {
@@ -28,28 +40,39 @@ class DataPostIntegrationTest extends IntegrationTestBase {
         void createPost_validRequest_savesPostAndReturnsResponse() throws Exception {
             AppUser seller = saveUser("seller1", Role.SELLER, BigDecimal.ZERO);
 
-            mockMvc.perform(post("/api/datapost")
-                            .contentType(APPLICATION_JSON)
-                            .content("""
-                                    {
-                                      "userId": %d,
-                                      "title": "Coding Dataset",
-                                      "content": "Full coding content",
-                                      "summary": "Coding summary",
-                                      "price": 30,
-                                      "genre": "CODING"
-                                    }
-                                    """.formatted(seller.getId())))
+            MockMultipartFile file = new MockMultipartFile(
+                    "file",
+                    "test.csv",
+                    "text/csv",
+                    "id,name,value\n1,Alice,100\n2,Bob,200".getBytes()
+            );
+
+            when(storageService.uploadDatasetFile(eq(seller.getId()), any(MultipartFile.class)))
+                    .thenReturn(new StoredFile(
+                            "yelos-datasets",
+                            "sellers/" + seller.getId() + "/posts/test-file.csv",
+                            "test.csv",
+                            "text/csv",
+                            36L,
+                            Instant.now()
+                    ));
+
+            mockMvc.perform(multipart("/api/datapost")
+                            .file(file)
+                            .param("userId", String.valueOf(seller.getId()))
+                            .param("title", "Coding Dataset")
+                            .param("summary", "Coding summary")
+                            .param("price", "30")
+                            .param("genre", "CODING"))
                     .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.id").exists())
                     .andExpect(jsonPath("$.userId").value(seller.getId()))
-                    .andExpect(jsonPath("$.username").value("seller1"))
                     .andExpect(jsonPath("$.title").value("Coding Dataset"))
                     .andExpect(jsonPath("$.summary").value("Coding summary"))
-                    .andExpect(jsonPath("$.content").value("Full coding content"))
                     .andExpect(jsonPath("$.genre").value("CODING"))
                     .andExpect(jsonPath("$.price").value(30))
-                    .andExpect(jsonPath("$.createdAt").exists());
+                    .andExpect(jsonPath("$.fileName").value("test.csv"))
+                    .andExpect(jsonPath("$.fileType").value("text/csv"))
+                    .andExpect(jsonPath("$.fileSize").value(36));
 
             assertThat(dataPostRepo.findAll()).hasSize(1);
 
@@ -57,32 +80,40 @@ class DataPostIntegrationTest extends IntegrationTestBase {
 
             assertThat(savedPost.getUser().getId()).isEqualTo(seller.getId());
             assertThat(savedPost.getTitle()).isEqualTo("Coding Dataset");
-            assertThat(savedPost.getContent()).isEqualTo("Full coding content");
             assertThat(savedPost.getSummary()).isEqualTo("Coding summary");
             assertThat(savedPost.getGenre()).isEqualTo(Genre.CODING);
             assertThat(savedPost.getPrice()).isEqualByComparingTo(BigDecimal.valueOf(30));
             assertThat(savedPost.getStatus()).isEqualTo(DataPostStatus.ACTIVE);
             assertThat(savedPost.getCreatedAt()).isNotNull();
+
+            assertThat(savedPost.getFileName()).isEqualTo("test.csv");
+            assertThat(savedPost.getFileType()).isEqualTo("text/csv");
+            assertThat(savedPost.getFileSize()).isEqualTo(36L);
+            assertThat(savedPost.getBucketName()).isEqualTo("yelos-datasets");
+            assertThat(savedPost.getObjectKey())
+                    .isEqualTo("sellers/" + seller.getId() + "/posts/test-file.csv");
         }
 
         @Test
         void createPost_missingUser_throwsExceptionAndDoesNotSavePost() {
+            MockMultipartFile file = new MockMultipartFile(
+                    "file",
+                    "test.csv",
+                    "text/csv",
+                    "id,name,value\n1,Alice,100\n2,Bob,200".getBytes()
+            );
+
             assertThatThrownBy(() ->
-                    mockMvc.perform(post("/api/datapost")
-                            .contentType(APPLICATION_JSON)
-                            .content("""
-                                    {
-                                      "userId": 999,
-                                      "title": "Coding Dataset",
-                                      "content": "Full coding content",
-                                      "summary": "Coding summary",
-                                      "price": 30,
-                                      "genre": "CODING"
-                                    }
-                                    """))
+                    mockMvc.perform(multipart("/api/datapost")
+                            .file(file)
+                            .param("userId", "999")
+                            .param("title", "Coding Dataset")
+                            .param("summary", "Coding summary")
+                            .param("price", "30")
+                            .param("genre", "CODING"))
             )
                     .hasRootCauseInstanceOf(RuntimeException.class)
-                    .hasRootCauseMessage("User does not exists");
+                    .hasRootCauseMessage("User does not exist");
 
             assertThat(dataPostRepo.findAll()).isEmpty();
         }
@@ -99,7 +130,6 @@ class DataPostIntegrationTest extends IntegrationTestBase {
                     seller,
                     Genre.CODING,
                     "Coding Dataset",
-                    "Full coding content",
                     "Coding summary",
                     BigDecimal.valueOf(30)
             );
@@ -108,7 +138,6 @@ class DataPostIntegrationTest extends IntegrationTestBase {
                     seller,
                     Genre.FINANCE,
                     "Finance Dataset",
-                    "Full finance content",
                     "Finance summary",
                     BigDecimal.valueOf(40)
             );
@@ -133,7 +162,6 @@ class DataPostIntegrationTest extends IntegrationTestBase {
                     seller,
                     Genre.CODING,
                     "Coding Dataset",
-                    "Full coding content",
                     "Coding summary",
                     BigDecimal.valueOf(30)
             );
@@ -142,7 +170,6 @@ class DataPostIntegrationTest extends IntegrationTestBase {
                     seller,
                     Genre.FINANCE,
                     "Finance Dataset",
-                    "Full finance content",
                     "Finance summary",
                     BigDecimal.valueOf(40)
             );
@@ -170,7 +197,6 @@ class DataPostIntegrationTest extends IntegrationTestBase {
                     seller,
                     Genre.CODING,
                     "Coding Dataset",
-                    "Full coding content",
                     "Coding summary",
                     BigDecimal.valueOf(30)
             );
@@ -198,7 +224,6 @@ class DataPostIntegrationTest extends IntegrationTestBase {
                     seller1,
                     Genre.CODING,
                     "Seller 1 Dataset",
-                    "Content 1",
                     "Summary 1",
                     BigDecimal.valueOf(30)
             );
@@ -207,7 +232,6 @@ class DataPostIntegrationTest extends IntegrationTestBase {
                     seller2,
                     Genre.FINANCE,
                     "Seller 2 Dataset",
-                    "Content 2",
                     "Summary 2",
                     BigDecimal.valueOf(40)
             );
@@ -248,7 +272,6 @@ class DataPostIntegrationTest extends IntegrationTestBase {
                     seller,
                     Genre.CODING,
                     "Coding Dataset",
-                    "Full coding content",
                     "Coding summary",
                     BigDecimal.valueOf(30)
             );
@@ -260,10 +283,12 @@ class DataPostIntegrationTest extends IntegrationTestBase {
                     .andExpect(jsonPath("$.username").value("seller1"))
                     .andExpect(jsonPath("$.title").value("Coding Dataset"))
                     .andExpect(jsonPath("$.summary").value("Coding summary"))
-                    .andExpect(jsonPath("$.content").value("Full coding content"))
                     .andExpect(jsonPath("$.genre").value("CODING"))
                     .andExpect(jsonPath("$.price").value(30))
-                    .andExpect(jsonPath("$.createdAt").exists());
+                    .andExpect(jsonPath("$.createdAt").exists())
+                    .andExpect(jsonPath("$.fileName").value("test.csv"))
+                    .andExpect(jsonPath("$.fileType").value("text/csv"))
+                    .andExpect(jsonPath("$.fileSize").value(36));
         }
 
         @Test
@@ -296,7 +321,6 @@ class DataPostIntegrationTest extends IntegrationTestBase {
             AppUser seller,
             Genre genre,
             String title,
-            String content,
             String summary,
             BigDecimal price
     ) {
@@ -304,11 +328,15 @@ class DataPostIntegrationTest extends IntegrationTestBase {
                 seller,
                 genre,
                 title,
-                content,
                 summary,
                 price,
                 DataPostStatus.ACTIVE,
-                Instant.now()
+                Instant.now(),
+                "test.csv",
+                "text/csv",
+                36L,
+                "yelos-datasets",
+                "sellers/" + seller.getId() + "/posts/" + UUID.randomUUID() + "-test.csv"
         ));
     }
 }

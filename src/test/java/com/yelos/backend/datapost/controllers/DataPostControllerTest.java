@@ -2,7 +2,6 @@ package com.yelos.backend.datapost.controllers;
 
 import com.yelos.backend.datapost.dto.DataPostPreviewResponse;
 import com.yelos.backend.datapost.dto.DataPostResponse;
-import com.yelos.backend.datapost.dto.PostRequest;
 import com.yelos.backend.datapost.models.Genre;
 import com.yelos.backend.datapost.services.DataPostService;
 import com.yelos.backend.globaldto.PageResponse;
@@ -12,8 +11,10 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
+import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -22,9 +23,7 @@ import java.util.List;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
-import static org.springframework.http.MediaType.APPLICATION_JSON;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 @WebMvcTest(DataPostController.class)
@@ -44,52 +43,66 @@ class DataPostControllerTest {
     class CreatePostTests {
 
         @Test
-        void createPost_validRequest_returnsDataPostResponse() throws Exception {
+        void createPost_validMultipartRequest_returnsDataPostResponse() throws Exception {
+            MockMultipartFile file = new MockMultipartFile(
+                    "file",
+                    "test.csv",
+                    "text/csv",
+                    "id,name,value\n1,Alice,100\n2,Bob,200".getBytes()
+            );
+
             DataPostResponse response = dataPostResponse(
                     10L,
                     1L,
                     "seller1",
                     "Coding Dataset",
                     "Coding summary",
-                    "Full coding content",
                     Genre.CODING,
                     BigDecimal.valueOf(30)
             );
 
-            when(dataPostService.postDataPosts(any(PostRequest.class)))
+            when(dataPostService.postDataPosts(
+                    eq(1L),
+                    eq("Coding Dataset"),
+                    eq("Coding summary"),
+                    eq(BigDecimal.valueOf(30)),
+                    eq(Genre.CODING),
+                    any(MultipartFile.class)
+            ))
                     .thenReturn(response);
 
-            mockMvc.perform(post("/api/datapost")
-                            .contentType(APPLICATION_JSON)
-                            .content("""
-                            {
-                              "userId": 1,
-                              "title": "Coding Dataset",
-                              "content": "Full coding content",
-                              "summary": "Coding summary",
-                              "price": 30,
-                              "genre": "CODING"
-                            }
-                            """))
+            mockMvc.perform(multipart("/api/datapost")
+                            .file(file)
+                            .param("userId", "1")
+                            .param("title", "Coding Dataset")
+                            .param("summary", "Coding summary")
+                            .param("price", "30")
+                            .param("genre", "CODING"))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.id").value(10L))
                     .andExpect(jsonPath("$.userId").value(1L))
                     .andExpect(jsonPath("$.username").value("seller1"))
                     .andExpect(jsonPath("$.title").value("Coding Dataset"))
                     .andExpect(jsonPath("$.summary").value("Coding summary"))
-                    .andExpect(jsonPath("$.content").value("Full coding content"))
                     .andExpect(jsonPath("$.genre").value("CODING"))
                     .andExpect(jsonPath("$.price").value(30))
-                    .andExpect(jsonPath("$.createdAt").exists());
+                    .andExpect(jsonPath("$.createdAt").exists())
+                    .andExpect(jsonPath("$.fileName").value("test.csv"))
+                    .andExpect(jsonPath("$.fileType").value("text/csv"))
+                    .andExpect(jsonPath("$.fileSize").value(36));
 
-            verify(dataPostService).postDataPosts(argThat(request ->
-                    request.userId().equals(1L)
-                            && request.title().equals("Coding Dataset")
-                            && request.content().equals("Full coding content")
-                            && request.summary().equals("Coding summary")
-                            && request.price().compareTo(BigDecimal.valueOf(30)) == 0
-                            && request.genre() == Genre.CODING
-            ));
+            verify(dataPostService).postDataPosts(
+                    eq(1L),
+                    eq("Coding Dataset"),
+                    eq("Coding summary"),
+                    eq(BigDecimal.valueOf(30)),
+                    eq(Genre.CODING),
+                    argThat(uploadedFile ->
+                            uploadedFile.getName().equals("file")
+                                    && uploadedFile.getOriginalFilename().equals("test.csv")
+                                    && uploadedFile.getContentType().equals("text/csv")
+                    )
+            );
         }
     }
 
@@ -203,7 +216,6 @@ class DataPostControllerTest {
                     "seller1",
                     "Coding Dataset",
                     "Coding summary",
-                    "Full coding content",
                     Genre.CODING,
                     BigDecimal.valueOf(30)
             );
@@ -234,7 +246,9 @@ class DataPostControllerTest {
                     .andExpect(jsonPath("$.content[0].id").value(10L))
                     .andExpect(jsonPath("$.content[0].userId").value(1L))
                     .andExpect(jsonPath("$.content[0].title").value("Coding Dataset"))
-                    .andExpect(jsonPath("$.content[0].content").value("Full coding content"))
+                    .andExpect(jsonPath("$.content[0].fileName").value("test.csv"))
+                    .andExpect(jsonPath("$.content[0].fileType").value("text/csv"))
+                    .andExpect(jsonPath("$.content[0].fileSize").value(36))
                     .andExpect(jsonPath("$.page").value(0))
                     .andExpect(jsonPath("$.size").value(12));
 
@@ -260,7 +274,6 @@ class DataPostControllerTest {
                     "seller1",
                     "Coding Dataset",
                     "Coding summary",
-                    "Full coding content",
                     Genre.CODING,
                     BigDecimal.valueOf(30)
             );
@@ -274,10 +287,12 @@ class DataPostControllerTest {
                     .andExpect(jsonPath("$.username").value("seller1"))
                     .andExpect(jsonPath("$.title").value("Coding Dataset"))
                     .andExpect(jsonPath("$.summary").value("Coding summary"))
-                    .andExpect(jsonPath("$.content").value("Full coding content"))
                     .andExpect(jsonPath("$.genre").value("CODING"))
                     .andExpect(jsonPath("$.price").value(30))
-                    .andExpect(jsonPath("$.createdAt").exists());
+                    .andExpect(jsonPath("$.createdAt").exists())
+                    .andExpect(jsonPath("$.fileName").value("test.csv"))
+                    .andExpect(jsonPath("$.fileType").value("text/csv"))
+                    .andExpect(jsonPath("$.fileSize").value(36));
 
             verify(dataPostService).getDataPostById(postId);
         }
@@ -289,7 +304,6 @@ class DataPostControllerTest {
             String username,
             String title,
             String summary,
-            String content,
             Genre genre,
             BigDecimal price
     ) {
@@ -299,10 +313,12 @@ class DataPostControllerTest {
                 username,
                 title,
                 summary,
-                content,
                 genre,
                 price,
-                Instant.now()
+                Instant.now(),
+                "test.csv",
+                "text/csv",
+                36L
         );
     }
 

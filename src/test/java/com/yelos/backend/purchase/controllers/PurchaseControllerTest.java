@@ -1,10 +1,14 @@
 package com.yelos.backend.purchase.controllers;
 
+import com.yelos.backend.datapost.models.Genre;
 import com.yelos.backend.globaldto.PageResponse;
+import com.yelos.backend.purchase.dto.PurchaseDownloadResponse;
 import com.yelos.backend.purchase.dto.PurchasePostRequest;
 import com.yelos.backend.purchase.dto.PurchaseResponse;
 import com.yelos.backend.purchase.services.PurchaseService;
+import com.yelos.backend.security.AuthUserPrincipal;
 import com.yelos.backend.security.JwtService;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -18,6 +22,7 @@ import java.time.Instant;
 import java.util.List;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
@@ -28,7 +33,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 @WebMvcTest(PurchaseController.class)
-@AutoConfigureMockMvc(addFilters = false)
+@AutoConfigureMockMvc
 class PurchaseControllerTest {
 
     @Autowired
@@ -55,9 +60,9 @@ class PurchaseControllerTest {
                     postId,
                     BigDecimal.valueOf(30),
                     BigDecimal.valueOf(70),
+                    Genre.CODING,
                     "Dataset",
-                    "Summary",
-                    "Content"
+                    "Summary"
             );
 
             when(purchaseService.purchasePost(any(PurchasePostRequest.class)))
@@ -78,9 +83,12 @@ class PurchaseControllerTest {
                     .andExpect(jsonPath("$.postId").value(10L))
                     .andExpect(jsonPath("$.price").value(30))
                     .andExpect(jsonPath("$.buyerCredits").value(70))
+                    .andExpect(jsonPath("$.genre").value("CODING"))
                     .andExpect(jsonPath("$.titleSnapshot").value("Dataset"))
                     .andExpect(jsonPath("$.summarySnapshot").value("Summary"))
-                    .andExpect(jsonPath("$.contentSnapshot").value("Content"))
+                    .andExpect(jsonPath("$.fileNameSnapshot").value("test.csv"))
+                    .andExpect(jsonPath("$.fileTypeSnapshot").value("text/csv"))
+                    .andExpect(jsonPath("$.fileSizeSnapshot").value(36))
                     .andExpect(jsonPath("$.purchasedAt").exists());
 
             verify(purchaseService).purchasePost(argThat(req ->
@@ -104,9 +112,9 @@ class PurchaseControllerTest {
                     10L,
                     BigDecimal.valueOf(30),
                     BigDecimal.valueOf(70),
+                    Genre.CODING,
                     "Dataset",
-                    "Summary",
-                    "Content"
+                    "Summary"
             );
 
             PageResponse<PurchaseResponse> pageResponse = new PageResponse<>(
@@ -140,9 +148,12 @@ class PurchaseControllerTest {
                     .andExpect(jsonPath("$.content[0].postId").value(10L))
                     .andExpect(jsonPath("$.content[0].price").value(30))
                     .andExpect(jsonPath("$.content[0].buyerCredits").value(70))
+                    .andExpect(jsonPath("$.content[0].genre").value("CODING"))
                     .andExpect(jsonPath("$.content[0].titleSnapshot").value("Dataset"))
                     .andExpect(jsonPath("$.content[0].summarySnapshot").value("Summary"))
-                    .andExpect(jsonPath("$.content[0].contentSnapshot").value("Content"))
+                    .andExpect(jsonPath("$.content[0].fileNameSnapshot").value("test.csv"))
+                    .andExpect(jsonPath("$.content[0].fileTypeSnapshot").value("text/csv"))
+                    .andExpect(jsonPath("$.content[0].fileSizeSnapshot").value(36))
                     .andExpect(jsonPath("$.content[0].purchasedAt").exists())
                     .andExpect(jsonPath("$.page").value(0))
                     .andExpect(jsonPath("$.size").value(6))
@@ -214,9 +225,9 @@ class PurchaseControllerTest {
                     10L,
                     BigDecimal.valueOf(30),
                     BigDecimal.valueOf(70),
+                    Genre.CODING,
                     "Dataset 1",
-                    "Summary 1",
-                    "Content 1"
+                    "Summary 1"
             );
 
             PurchaseResponse purchase2 = purchaseResponse(
@@ -226,9 +237,9 @@ class PurchaseControllerTest {
                     11L,
                     BigDecimal.valueOf(40),
                     BigDecimal.valueOf(30),
+                    Genre.FINANCE,
                     "Dataset 2",
-                    "Summary 2",
-                    "Content 2"
+                    "Summary 2"
             );
 
             when(purchaseService.getPurchasesByUserId(userId))
@@ -245,9 +256,12 @@ class PurchaseControllerTest {
                     .andExpect(jsonPath("$[0].postId").value(10L))
                     .andExpect(jsonPath("$[0].price").value(30))
                     .andExpect(jsonPath("$[0].buyerCredits").value(70))
+                    .andExpect(jsonPath("$[0].genre").value("CODING"))
                     .andExpect(jsonPath("$[0].titleSnapshot").value("Dataset 1"))
                     .andExpect(jsonPath("$[0].summarySnapshot").value("Summary 1"))
-                    .andExpect(jsonPath("$[0].contentSnapshot").value("Content 1"))
+                    .andExpect(jsonPath("$[0].fileNameSnapshot").value("test.csv"))
+                    .andExpect(jsonPath("$[0].fileTypeSnapshot").value("text/csv"))
+                    .andExpect(jsonPath("$[0].fileSizeSnapshot").value(36))
                     .andExpect(jsonPath("$[0].purchasedAt").exists())
 
                     .andExpect(jsonPath("$[1].id").value(101L))
@@ -256,12 +270,56 @@ class PurchaseControllerTest {
                     .andExpect(jsonPath("$[1].postId").value(11L))
                     .andExpect(jsonPath("$[1].price").value(40))
                     .andExpect(jsonPath("$[1].buyerCredits").value(30))
+                    .andExpect(jsonPath("$[1].genre").value("FINANCE"))
                     .andExpect(jsonPath("$[1].titleSnapshot").value("Dataset 2"))
                     .andExpect(jsonPath("$[1].summarySnapshot").value("Summary 2"))
-                    .andExpect(jsonPath("$[1].contentSnapshot").value("Content 2"))
+                    .andExpect(jsonPath("$[1].fileNameSnapshot").value("test.csv"))
+                    .andExpect(jsonPath("$[1].fileTypeSnapshot").value("text/csv"))
+                    .andExpect(jsonPath("$[1].fileSizeSnapshot").value(36))
                     .andExpect(jsonPath("$[1].purchasedAt").exists());
 
             verify(purchaseService).getPurchasesByUserId(userId);
+        }
+    }
+
+    @Nested
+    class DownloadPurchasedFileTests {
+        @Test
+        void downloadPurchasedFile_validPrincipal_returnsDownloadResponse() {
+            Long purchaseId = 100L;
+            Long buyerId = 1L;
+
+            AuthUserPrincipal principal = new AuthUserPrincipal(
+                    buyerId,
+                    "buyer1",
+                    "BUSINESS"
+            );
+
+            PurchaseDownloadResponse response = new PurchaseDownloadResponse(
+                    "https://signed-url.example.com",
+                    "test.csv",
+                    "text/csv",
+                    36L,
+                    300
+            );
+
+            when(purchaseService.generatePurchaseDownloadUrl(purchaseId, buyerId))
+                    .thenReturn(response);
+
+            PurchaseController controller = new PurchaseController(purchaseService);
+
+            PurchaseDownloadResponse result = controller.downloadPurchasedFile(
+                    purchaseId,
+                    principal
+            );
+
+            assertEquals("https://signed-url.example.com", result.downloadUrl());
+            assertEquals("test.csv", result.fileName());
+            assertEquals("text/csv", result.fileType());
+            assertEquals(36L, result.fileSize());
+            assertEquals(300, result.expiresInSeconds());
+
+            verify(purchaseService).generatePurchaseDownloadUrl(purchaseId, buyerId);
         }
     }
 
@@ -272,9 +330,9 @@ class PurchaseControllerTest {
             Long postId,
             BigDecimal price,
             BigDecimal buyerCredits,
+            Genre genre,
             String titleSnapshot,
-            String summarySnapshot,
-            String contentSnapshot
+            String summarySnapshot
     ) {
         return new PurchaseResponse(
                 id,
@@ -283,9 +341,12 @@ class PurchaseControllerTest {
                 postId,
                 price,
                 buyerCredits,
+                genre,
                 titleSnapshot,
                 summarySnapshot,
-                contentSnapshot,
+                "test.csv",
+                "text/csv",
+                36L,
                 Instant.now()
         );
     }

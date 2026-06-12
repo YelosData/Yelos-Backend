@@ -4,11 +4,12 @@ import com.yelos.backend.datapost.models.DataPost;
 import com.yelos.backend.datapost.models.Genre;
 import com.yelos.backend.datapost.repo.DataPostRepo;
 import com.yelos.backend.globaldto.PageResponse;
+import com.yelos.backend.purchase.dto.PurchaseDownloadResponse;
 import com.yelos.backend.purchase.dto.PurchasePostRequest;
 import com.yelos.backend.purchase.dto.PurchaseResponse;
 import com.yelos.backend.purchase.models.Purchase;
 import com.yelos.backend.purchase.repo.PurchaseRepo;
-
+import com.yelos.backend.storage.services.StorageDownloadService;
 import com.yelos.backend.transaction.services.TransactionService;
 import com.yelos.backend.user.models.AppUser;
 import com.yelos.backend.user.models.Role;
@@ -30,7 +31,7 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
@@ -48,6 +49,8 @@ class PurchaseServiceTest {
     @Mock
     private TransactionService transactionService;
 
+    @Mock
+    private StorageDownloadService storageDownloadService;
 
     @InjectMocks
     private PurchaseService purchaseService;
@@ -55,7 +58,7 @@ class PurchaseServiceTest {
     @Nested
     class PurchasePostTest {
             @Test
-            void purchasePost_validPurchase_updatesCreditsAndSavesPurchase() {
+            void purchasePost_validPurchase_updatesCreditsAndSavesPurchaseWithFileSnapshot() {
 
                 Long buyerId = 1L;
                 Long sellerId = 2L;
@@ -70,7 +73,6 @@ class PurchaseServiceTest {
                         seller,
                         "ChatGPT Dataset",
                         "Useful conversation data",
-                        "Full raw content here",
                         BigDecimal.valueOf(30),
                         genre
                 );
@@ -95,6 +97,14 @@ class PurchaseServiceTest {
                 assertThat(seller.getCredits())
                         .isEqualByComparingTo(BigDecimal.valueOf(30));
 
+                assertThat(response).isNotNull();
+                assertThat(response.id()).isEqualTo(100L);
+                assertThat(response.titleSnapshot()).isEqualTo("ChatGPT Dataset");
+                assertThat(response.summarySnapshot()).isEqualTo("Useful conversation data");
+                assertThat(response.fileNameSnapshot()).isEqualTo("test.csv");
+                assertThat(response.fileTypeSnapshot()).isEqualTo("text/csv");
+                assertThat(response.fileSizeSnapshot()).isEqualTo(36L);
+
                 verify(userRepo).findById(buyerId);
                 verify(dataPostRepo).findById(postId);
                 verify(purchaseRepo).existsByBuyerIdAndPostId(buyerId, postId);
@@ -105,7 +115,11 @@ class PurchaseServiceTest {
                 verify(purchaseRepo).save(argThat(purchase ->
                         "ChatGPT Dataset".equals(getField(purchase, "titleSnapshot"))
                                 && "Useful conversation data".equals(getField(purchase, "summarySnapshot"))
-                                && "Full raw content here".equals(getField(purchase, "contentSnapshot"))
+                                && "test.csv".equals(getField(purchase, "fileNameSnapshot"))
+                                && "text/csv".equals(getField(purchase, "fileTypeSnapshot"))
+                                && Long.valueOf(36L).equals(getField(purchase, "fileSizeSnapshot"))
+                                && "yelos-datasets".equals(getField(purchase, "bucketNameSnapshot"))
+                                && "sellers/2/posts/test-file.csv".equals(getField(purchase, "objectKeySnapshot"))
                 ));
 
                 verify(transactionService).PurchaseTransaction(
@@ -115,7 +129,43 @@ class PurchaseServiceTest {
                         argThat(amount -> amount.compareTo(BigDecimal.valueOf(30)) == 0)
                 );
 
-                assertThat(response).isNotNull();
+                verifyNoInteractions(storageDownloadService);
+            }
+
+            @Test
+            void purchasePost_postWithoutCloudFile_throwsException() {
+                Long buyerId = 1L;
+                Long postId = 10L;
+
+                AppUser buyer = user(buyerId, "buyer1", Role.BUSINESS, BigDecimal.valueOf(100));
+                AppUser seller = user(2L, "seller1", Role.SELLER, BigDecimal.ZERO);
+
+                DataPost post = post(
+                        postId,
+                        seller,
+                        "Legacy Dataset",
+                        "Legacy summary",
+                        BigDecimal.valueOf(30),
+                        Genre.CODING
+                );
+
+                ReflectionTestUtils.setField(post, "objectKey", null);
+
+                when(userRepo.findById(buyerId)).thenReturn(Optional.of(buyer));
+                when(dataPostRepo.findById(postId)).thenReturn(Optional.of(post));
+                when(purchaseRepo.existsByBuyerIdAndPostId(buyerId, postId)).thenReturn(false);
+
+                assertThatThrownBy(() ->
+                        purchaseService.purchasePost(new PurchasePostRequest(buyerId, postId))
+                ).isInstanceOf(RuntimeException.class);
+
+                assertThat(buyer.getCredits()).isEqualByComparingTo(BigDecimal.valueOf(100));
+                assertThat(seller.getCredits()).isEqualByComparingTo(BigDecimal.ZERO);
+
+                verify(purchaseRepo, never()).save(any(Purchase.class));
+                verify(userRepo, never()).save(any(AppUser.class));
+                verifyNoInteractions(transactionService);
+                verifyNoInteractions(storageDownloadService);
             }
 
             @Test
@@ -133,6 +183,7 @@ class PurchaseServiceTest {
                 verify(userRepo).findById(buyerId);
                 verifyNoInteractions(dataPostRepo);
                 verifyNoInteractions(transactionService);
+                verifyNoInteractions(storageDownloadService);
                 verify(purchaseRepo, never()).save(any(Purchase.class));
             }
 
@@ -154,6 +205,7 @@ class PurchaseServiceTest {
                 verify(userRepo).findById(buyerId);
                 verify(dataPostRepo).findById(postId);
                 verifyNoInteractions(transactionService);
+                verifyNoInteractions(storageDownloadService);
                 verify(purchaseRepo, never()).save(any(Purchase.class));
             }
 
@@ -172,7 +224,6 @@ class PurchaseServiceTest {
                         seller,
                         "Dataset",
                         "Summary",
-                        "Content",
                         BigDecimal.valueOf(30),
                         genre
                 );
@@ -186,6 +237,7 @@ class PurchaseServiceTest {
 
                 verify(purchaseRepo, never()).save(any(Purchase.class));
                 verifyNoInteractions(transactionService);
+                verifyNoInteractions(storageDownloadService);
                 verify(userRepo, never()).save(any(AppUser.class));
             }
 
@@ -204,7 +256,6 @@ class PurchaseServiceTest {
                     seller,
                     "Dataset",
                     "Summary",
-                    "Content",
                     BigDecimal.valueOf(30),
                     genre
             );
@@ -218,6 +269,7 @@ class PurchaseServiceTest {
 
             verify(purchaseRepo, never()).save(any(Purchase.class));
             verifyNoInteractions(transactionService);
+            verifyNoInteractions(storageDownloadService);
             verify(userRepo, never()).save(any(AppUser.class));
         }
 
@@ -236,7 +288,6 @@ class PurchaseServiceTest {
                     seller,
                     "Dataset",
                     "Summary",
-                    "Content",
                     BigDecimal.valueOf(30),
                     genre
             );
@@ -256,6 +307,7 @@ class PurchaseServiceTest {
 
             verify(purchaseRepo, never()).save(any(Purchase.class));
             verifyNoInteractions(transactionService);
+            verifyNoInteractions(storageDownloadService);
         }
 
         @Test
@@ -273,7 +325,6 @@ class PurchaseServiceTest {
                     seller,
                     "Dataset",
                     "Summary",
-                    "Content",
                     BigDecimal.valueOf(30),
                     genre
             );
@@ -288,6 +339,7 @@ class PurchaseServiceTest {
 
             verify(purchaseRepo, never()).save(any(Purchase.class));
             verifyNoInteractions(transactionService);
+            verifyNoInteractions(storageDownloadService);
         }
 
         @Test
@@ -305,7 +357,6 @@ class PurchaseServiceTest {
                     seller,
                     "Dataset",
                     "Summary",
-                    "Content",
                     BigDecimal.valueOf(30),
                     genre
             );
@@ -334,6 +385,7 @@ class PurchaseServiceTest {
                     any(Purchase.class),
                     argThat(amount -> amount.compareTo(BigDecimal.valueOf(30)) == 0)
             );
+            verifyNoInteractions(storageDownloadService);
         }
     }
 
@@ -355,7 +407,6 @@ class PurchaseServiceTest {
                     seller,
                     "Dataset 1",
                     "Summary 1",
-                    "Content 1",
                     BigDecimal.valueOf(30),
                     genre
             );
@@ -365,7 +416,6 @@ class PurchaseServiceTest {
                     seller,
                     "Dataset 2",
                     "Summary 2",
-                    "Content 2",
                     BigDecimal.valueOf(40),
                     genre
             );
@@ -377,8 +427,7 @@ class PurchaseServiceTest {
                     post1,
                     BigDecimal.valueOf(30),
                     "Dataset 1",
-                    "Summary 1",
-                    "Content 1"
+                    "Summary 1"
             );
 
             Purchase purchase2 = purchase(
@@ -388,8 +437,7 @@ class PurchaseServiceTest {
                     post2,
                     BigDecimal.valueOf(40),
                     "Dataset 2",
-                    "Summary 2",
-                    "Content 2"
+                    "Summary 2"
             );
 
             when(userRepo.findById(buyerId)).thenReturn(Optional.of(buyer));
@@ -401,17 +449,20 @@ class PurchaseServiceTest {
 
             assertThat(responses.get(0).titleSnapshot()).isEqualTo("Dataset 1");
             assertThat(responses.get(0).summarySnapshot()).isEqualTo("Summary 1");
-            assertThat(responses.get(0).contentSnapshot()).isEqualTo("Content 1");
+            assertThat(responses.get(0).fileNameSnapshot()).isEqualTo("test.csv");
+            assertThat(responses.get(0).fileTypeSnapshot()).isEqualTo("text/csv");
+            assertThat(responses.get(0).fileSizeSnapshot()).isEqualTo(36L);
 
             assertThat(responses.get(1).titleSnapshot()).isEqualTo("Dataset 2");
             assertThat(responses.get(1).summarySnapshot()).isEqualTo("Summary 2");
-            assertThat(responses.get(1).contentSnapshot()).isEqualTo("Content 2");
+            assertThat(responses.get(1).fileNameSnapshot()).isEqualTo("test.csv");
 
             verify(userRepo).findById(buyerId);
             verify(purchaseRepo).findByBuyerId(buyerId);
 
             verifyNoInteractions(dataPostRepo);
             verifyNoInteractions(transactionService);
+            verifyNoInteractions(storageDownloadService);
         }
 
         @Test
@@ -430,6 +481,7 @@ class PurchaseServiceTest {
             verifyNoInteractions(purchaseRepo);
             verifyNoInteractions(dataPostRepo);
             verifyNoInteractions(transactionService);
+            verifyNoInteractions(storageDownloadService);
         }
 
         @Test
@@ -451,6 +503,7 @@ class PurchaseServiceTest {
 
             verifyNoInteractions(dataPostRepo);
             verifyNoInteractions(transactionService);
+            verifyNoInteractions(storageDownloadService);
         }
     }
 
@@ -472,7 +525,6 @@ class PurchaseServiceTest {
                     seller,
                     "Dataset 1",
                     "Summary 1",
-                    "Content 1",
                     BigDecimal.valueOf(30),
                     genre
             );
@@ -484,8 +536,7 @@ class PurchaseServiceTest {
                     post,
                     BigDecimal.valueOf(30),
                     "Dataset 1",
-                    "Summary 1",
-                    "Content 1"
+                    "Summary 1"
             );
 
             Page<Purchase> purchasePage = new PageImpl<>(List.of(purchase));
@@ -508,6 +559,7 @@ class PurchaseServiceTest {
             assertThat(response).isNotNull();
             assertThat(response.content()).hasSize(1);
             assertThat(response.content().get(0).titleSnapshot()).isEqualTo("Dataset 1");
+            assertThat(response.content().get(0).fileNameSnapshot()).isEqualTo("test.csv");
 
             verify(userRepo).findById(buyerId);
 
@@ -522,6 +574,7 @@ class PurchaseServiceTest {
 
             verifyNoInteractions(dataPostRepo);
             verifyNoInteractions(transactionService);
+            verifyNoInteractions(storageDownloadService);
         }
 
 
@@ -541,7 +594,6 @@ class PurchaseServiceTest {
                     seller,
                     "Coding Dataset",
                     "Coding Summary",
-                    "Coding Content",
                     BigDecimal.valueOf(30),
                     genre1
             );
@@ -551,7 +603,6 @@ class PurchaseServiceTest {
                     seller,
                     "Finance Dataset",
                     "Finance Summary",
-                    "Finance Content",
                     BigDecimal.valueOf(40),
                     genre2
             );
@@ -563,8 +614,7 @@ class PurchaseServiceTest {
                     codingPost,
                     BigDecimal.valueOf(30),
                     "Coding Dataset",
-                    "Coding Summary",
-                    "Coding Content"
+                    "Coding Summary"
             );
 
             Purchase financePurchase = purchase(
@@ -574,8 +624,7 @@ class PurchaseServiceTest {
                     financePost,
                     BigDecimal.valueOf(40),
                     "Finance Dataset",
-                    "Finance Summary",
-                    "Finance Content"
+                    "Finance Summary"
             );
 
             Page<Purchase> codingOnlyPage = new PageImpl<>(
@@ -624,6 +673,7 @@ class PurchaseServiceTest {
 
             verifyNoInteractions(dataPostRepo);
             verifyNoInteractions(transactionService);
+            verifyNoInteractions(storageDownloadService);
         }
 
         @Test
@@ -662,6 +712,7 @@ class PurchaseServiceTest {
 
             verifyNoInteractions(dataPostRepo);
             verifyNoInteractions(transactionService);
+            verifyNoInteractions(storageDownloadService);
         }
 
         @Test
@@ -687,6 +738,7 @@ class PurchaseServiceTest {
             verifyNoInteractions(purchaseRepo);
             verifyNoInteractions(dataPostRepo);
             verifyNoInteractions(transactionService);
+            verifyNoInteractions(storageDownloadService);
         }
 
         @Test
@@ -714,6 +766,88 @@ class PurchaseServiceTest {
             verifyNoInteractions(purchaseRepo);
             verifyNoInteractions(dataPostRepo);
             verifyNoInteractions(transactionService);
+            verifyNoInteractions(storageDownloadService);
+        }
+    }
+
+    @Nested
+    class GeneratePurchaseDownloadUrlTests {
+
+        @Test
+        void generatePurchaseDownloadUrl_validPurchase_returnsDownloadResponse() {
+            Long buyerId = 1L;
+            Long sellerId = 2L;
+            Long purchaseId = 100L;
+
+            AppUser buyer = user(buyerId, "buyer1", Role.BUSINESS, BigDecimal.valueOf(100));
+            AppUser seller = user(sellerId, "seller1", Role.SELLER, BigDecimal.ZERO);
+            DataPost post = post(10L, seller, "Dataset", "Summary", BigDecimal.valueOf(30), Genre.CODING);
+            Purchase purchase = purchase(purchaseId, buyer, seller, post, BigDecimal.valueOf(30), "Dataset", "Summary");
+
+            when(purchaseRepo.findByIdAndBuyerId(purchaseId, buyerId)).thenReturn(Optional.of(purchase));
+            when(storageDownloadService.generateDownloadUrl(
+                    "yelos-datasets",
+                    "sellers/2/posts/test-file.csv",
+                    "test.csv"
+            )).thenReturn("https://signed-url.example.com");
+
+            PurchaseDownloadResponse response = purchaseService.generatePurchaseDownloadUrl(
+                    purchaseId,
+                    buyerId
+            );
+
+            assertThat(response.downloadUrl()).isEqualTo("https://signed-url.example.com");
+            assertThat(response.fileName()).isEqualTo("test.csv");
+            assertThat(response.fileType()).isEqualTo("text/csv");
+            assertThat(response.fileSize()).isEqualTo(36L);
+            assertThat(response.expiresInSeconds()).isEqualTo(300);
+
+            verify(purchaseRepo).findByIdAndBuyerId(purchaseId, buyerId);
+            verify(storageDownloadService).generateDownloadUrl(
+                    "yelos-datasets",
+                    "sellers/2/posts/test-file.csv",
+                    "test.csv"
+            );
+        }
+
+        @Test
+        void generatePurchaseDownloadUrl_purchaseNotFound_throwsException() {
+            Long buyerId = 1L;
+            Long purchaseId = 100L;
+
+            AppUser buyer = user(buyerId, "buyer1", Role.BUSINESS, BigDecimal.valueOf(100));
+
+            when(purchaseRepo.findByIdAndBuyerId(purchaseId, buyerId)).thenReturn(Optional.empty());
+
+            assertThatThrownBy(() ->
+                    purchaseService.generatePurchaseDownloadUrl(purchaseId, buyerId)
+            ).isInstanceOf(RuntimeException.class);
+
+            verify(purchaseRepo).findByIdAndBuyerId(purchaseId, buyerId);
+            verifyNoInteractions(storageDownloadService);
+        }
+
+        @Test
+        void generatePurchaseDownloadUrl_purchaseWithoutObjectKey_throwsException() {
+            Long buyerId = 1L;
+            Long sellerId = 2L;
+            Long purchaseId = 100L;
+
+            AppUser buyer = user(buyerId, "buyer1", Role.BUSINESS, BigDecimal.valueOf(100));
+            AppUser seller = user(sellerId, "seller1", Role.SELLER, BigDecimal.ZERO);
+            DataPost post = post(10L, seller, "Dataset", "Summary", BigDecimal.valueOf(30), Genre.CODING);
+            Purchase purchase = purchase(purchaseId, buyer, seller, post, BigDecimal.valueOf(30), "Dataset", "Summary");
+
+            ReflectionTestUtils.setField(purchase, "objectKeySnapshot", null);
+
+            when(purchaseRepo.findByIdAndBuyerId(purchaseId, buyerId)).thenReturn(Optional.of(purchase));
+
+            assertThatThrownBy(() ->
+                    purchaseService.generatePurchaseDownloadUrl(purchaseId, buyerId)
+            ).isInstanceOf(RuntimeException.class);
+
+            verify(purchaseRepo).findByIdAndBuyerId(purchaseId, buyerId);
+            verifyNoInteractions(storageDownloadService);
         }
     }
 
@@ -737,7 +871,6 @@ class PurchaseServiceTest {
             AppUser seller,
             String title,
             String summary,
-            String content,
             BigDecimal price,
             Genre genre
     ) {
@@ -747,9 +880,14 @@ class PurchaseServiceTest {
         ReflectionTestUtils.setField(post, "user", seller);
         ReflectionTestUtils.setField(post, "title", title);
         ReflectionTestUtils.setField(post, "summary", summary);
-        ReflectionTestUtils.setField(post, "content", content);
         ReflectionTestUtils.setField(post, "price", price);
         ReflectionTestUtils.setField(post, "genre", genre);
+
+        ReflectionTestUtils.setField(post, "fileName", "test.csv");
+        ReflectionTestUtils.setField(post, "fileType", "text/csv");
+        ReflectionTestUtils.setField(post, "fileSize", 36L);
+        ReflectionTestUtils.setField(post, "bucketName", "yelos-datasets");
+        ReflectionTestUtils.setField(post, "objectKey", "sellers/2/posts/test-file.csv");
 
         return post;
     }
@@ -761,8 +899,7 @@ class PurchaseServiceTest {
             DataPost post,
             BigDecimal pricePaid,
             String titleSnapshot,
-            String summarySnapshot,
-            String contentSnapshot
+            String summarySnapshot
     ) {
         Purchase purchase = new Purchase();
         ReflectionTestUtils.setField(purchase, "id", id);
@@ -772,26 +909,17 @@ class PurchaseServiceTest {
         ReflectionTestUtils.setField(purchase, "pricePaid", pricePaid);
         ReflectionTestUtils.setField(purchase, "titleSnapshot", titleSnapshot);
         ReflectionTestUtils.setField(purchase, "summarySnapshot", summarySnapshot);
-        ReflectionTestUtils.setField(purchase, "contentSnapshot", contentSnapshot);
+
+        ReflectionTestUtils.setField(purchase, "fileNameSnapshot", "test.csv");
+        ReflectionTestUtils.setField(purchase, "fileTypeSnapshot", "text/csv");
+        ReflectionTestUtils.setField(purchase, "fileSizeSnapshot", 36L);
+        ReflectionTestUtils.setField(purchase, "bucketNameSnapshot", "yelos-datasets");
+        ReflectionTestUtils.setField(purchase, "objectKeySnapshot", "sellers/2/posts/test-file.csv");
 
         return purchase;
     }
 
     private Object getField(Object target, String fieldName) {
         return ReflectionTestUtils.getField(target, fieldName);
-    }
-
-    private Long getLongField(Object target, String fieldName) {
-        Object value = ReflectionTestUtils.getField(target, fieldName);
-
-        if (value instanceof Integer integer) {
-            return integer.longValue();
-        }
-
-        if (value instanceof Long longValue) {
-            return longValue;
-        }
-
-        throw new IllegalStateException("Field " + fieldName + " is not Integer or Long");
     }
 }

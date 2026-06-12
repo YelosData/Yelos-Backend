@@ -4,10 +4,12 @@ import com.yelos.backend.datapost.models.DataPost;
 import com.yelos.backend.datapost.models.Genre;
 import com.yelos.backend.datapost.repo.DataPostRepo;
 import com.yelos.backend.globaldto.PageResponse;
+import com.yelos.backend.purchase.dto.PurchaseDownloadResponse;
 import com.yelos.backend.purchase.dto.PurchasePostRequest;
 import com.yelos.backend.purchase.dto.PurchaseResponse;
 import com.yelos.backend.purchase.models.Purchase;
 import com.yelos.backend.purchase.repo.PurchaseRepo;
+import com.yelos.backend.storage.services.StorageDownloadService;
 import com.yelos.backend.transaction.services.TransactionService;
 import com.yelos.backend.user.models.Role;
 import com.yelos.backend.user.models.AppUser;
@@ -31,11 +33,19 @@ public class PurchaseService {
     private final DataPostRepo dataPostRepo;
     private final UserRepo userRepo;
     private final TransactionService transactionService;
-    public PurchaseService(PurchaseRepo purchaseRepo, DataPostRepo dataPostRepo, UserRepo userRepo, TransactionService transactionService) {
+    private final StorageDownloadService storageDownloadService;
+    public PurchaseService(
+            PurchaseRepo purchaseRepo,
+            DataPostRepo dataPostRepo,
+            UserRepo userRepo,
+            TransactionService transactionService,
+            StorageDownloadService storageDownloadService
+    ) {
         this.purchaseRepo = purchaseRepo;
         this.dataPostRepo = dataPostRepo;
         this.userRepo = userRepo;
         this.transactionService = transactionService;
+        this.storageDownloadService = storageDownloadService;
     }
 
     @Transactional
@@ -82,6 +92,13 @@ public class PurchaseService {
             );
         }
 
+        if (post.getObjectKey() == null || post.getObjectKey().isBlank()) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "This post does not have a cloud file yet"
+            );
+        }
+
         buyer.deductCred(post.getPrice());
         seller.addCred(post.getPrice());
 
@@ -92,8 +109,12 @@ public class PurchaseService {
                 post.getPrice(),
                 post.getTitle(),
                 post.getSummary(),
-                post.getContent(),
-                Instant.now()
+                Instant.now(),
+                post.getFileName(),
+                post.getFileType(),
+                post.getFileSize(),
+                post.getBucketName(),
+                post.getObjectKey()
         );
 
         Purchase savedPurchase = purchaseRepo.save(purchase);
@@ -110,6 +131,7 @@ public class PurchaseService {
 
         return toPurchaseResponse(savedPurchase);
     }
+
     public List<PurchaseResponse> getPurchasesByUserId(Long userId) {
         AppUser buyer = userRepo.findById(userId)
                 .orElseThrow(() -> new RuntimeException("User does not exist"));
@@ -160,6 +182,38 @@ public class PurchaseService {
         );
     }
 
+    public PurchaseDownloadResponse generatePurchaseDownloadUrl(
+            Long purchaseId,
+            Long buyerId
+    ) {
+        Purchase purchase = purchaseRepo.findByIdAndBuyerId(purchaseId, buyerId)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND,
+                        "Purchase not found"
+                ));
+
+        if (purchase.getObjectKeySnapshot() == null || purchase.getObjectKeySnapshot().isBlank()) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "This purchase does not have a downloadable file"
+            );
+        }
+
+        String downloadUrl = storageDownloadService.generateDownloadUrl(
+                purchase.getBucketNameSnapshot(),
+                purchase.getObjectKeySnapshot(),
+                purchase.getFileNameSnapshot()
+        );
+
+        return new PurchaseDownloadResponse(
+                downloadUrl,
+                purchase.getFileNameSnapshot(),
+                purchase.getFileTypeSnapshot(),
+                purchase.getFileSizeSnapshot(),
+                300
+        );
+    }
+
     private Sort getPurchaseSort(String sort) {
         return switch (sort) {
             case "oldest" -> Sort.by(Sort.Direction.ASC, "purchasedAt");
@@ -178,9 +232,12 @@ public class PurchaseService {
                 purchase.getDataPost().getId(),
                 purchase.getPricePaid(),
                 purchase.getBuyer().getCredits(),
+                purchase.getGenre(),
                 purchase.getTitleSnapshot(),
                 purchase.getSummarySnapshot(),
-                purchase.getContentSnapshot(),
+                purchase.getFileNameSnapshot(),
+                purchase.getFileTypeSnapshot(),
+                purchase.getFileSizeSnapshot(),
                 purchase.getPurchasedAt()
         );
     }

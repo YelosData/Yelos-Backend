@@ -17,8 +17,11 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -49,7 +52,14 @@ public class DataPostService {
         AppUser user = userRepo.findById(userId)
                 .orElseThrow(() -> new RuntimeException("User does not exist"));
 
-        StoredFile storedFile = storageService.uploadDatasetFile(user.getId(), file);
+        StoredFile storedFile = null;
+
+        try {
+            storedFile = storageService.uploadDatasetFile(userId, file);
+        } catch (Exception e) {
+            e.printStackTrace();
+            throw e;
+        }
 
         DataPost post = new DataPost(
                 user,
@@ -109,8 +119,12 @@ public class DataPostService {
         Pageable pageable = PageRequest.of(page, size, sortObj);
 
         Page<DataPost> result = genre == null
-                ? dataPostRepo.findAll(pageable)
-                : dataPostRepo.findByGenre(genre, pageable);
+                ? dataPostRepo.findByStatus(DataPostStatus.ACTIVE, pageable)
+                : dataPostRepo.findByGenreAndStatus(
+                genre,
+                DataPostStatus.ACTIVE,
+                pageable
+        );
 
         List<DataPostPreviewResponse> content = result.getContent()
                 .stream()
@@ -152,7 +166,11 @@ public class DataPostService {
 
         Pageable pageable = PageRequest.of(page, size, sortObj);
 
-        Page<DataPost> result = dataPostRepo.findByUserId(user.getId(), pageable);
+        Page<DataPost> result = dataPostRepo.findByUserIdAndStatusNot(
+                user.getId(),
+                DataPostStatus.DELETED,
+                pageable
+        );
 
         List<DataPostResponse> content = result.getContent()
                 .stream()
@@ -167,6 +185,115 @@ public class DataPostService {
                 result.getTotalPages(),
                 result.isLast()
         );
+    }
+    @Transactional
+    public void deletePost(Long postId, Long userId) {
+        DataPost post = dataPostRepo.findById(postId)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND,
+                        "Post does not exist"
+                ));
+
+        if (post.getUser().getId() != userId) {
+            throw new ResponseStatusException(
+                    HttpStatus.FORBIDDEN,
+                    "You can only delete your own posts"
+            );
+        }
+
+        if (post.isDeleted()) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "Post is already deleted"
+            );
+        }
+
+        post.markDeleted(Instant.now());
+    }
+
+    @Transactional
+    public DataPostResponse updatePost(
+            Long postId,
+            Long userId,
+            String title,
+            String summary,
+            Genre genre,
+            BigDecimal price,
+            MultipartFile file
+    ) {
+        DataPost post = dataPostRepo.findById(postId)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND,
+                        "Post does not exist"
+                ));
+
+        if (post.getUser().getId() != userId) {
+            throw new ResponseStatusException(
+                    HttpStatus.FORBIDDEN,
+                    "You can only update your own posts"
+            );
+        }
+
+        if (post.isDeleted()) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "Cannot update a deleted post"
+            );
+        }
+
+        validateUpdatePost(title, summary, genre, price);
+
+        StoredFile storedFile = null;
+
+        if (file != null && !file.isEmpty()) {
+            storedFile = storageService.uploadDatasetFile(userId, file);
+        }
+
+        post.updatePost(
+                genre,
+                title.trim(),
+                summary.trim(),
+                price,
+                storedFile,
+                Instant.now()
+        );
+
+        return toDataPostResponse(post);
+    }
+
+    private void validateUpdatePost(
+            String title,
+            String summary,
+            Genre genre,
+            BigDecimal price
+    ) {
+        if (title == null || title.trim().isEmpty()) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "Title is required"
+            );
+        }
+
+        if (summary == null || summary.trim().isEmpty()) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "Summary is required"
+            );
+        }
+
+        if (genre == null) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "Genre is required"
+            );
+        }
+
+        if (price == null || price.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "Price must be greater than 0"
+            );
+        }
     }
 
     private DataPostPreviewResponse toPreviewResponse(DataPost post) {
@@ -194,7 +321,12 @@ public class DataPostService {
                 post.getCreatedAt(),
                 post.getFileName(),
                 post.getFileType(),
-                post.getFileSize()
+                post.getFileSize(),
+                post.getUpdatedAt(),
+                post.getStatus(),
+                post.getVersion()
         );
     }
+
+
 }

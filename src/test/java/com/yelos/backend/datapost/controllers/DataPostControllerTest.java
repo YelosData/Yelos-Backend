@@ -2,6 +2,7 @@ package com.yelos.backend.datapost.controllers;
 
 import com.yelos.backend.datapost.dto.DataPostPreviewResponse;
 import com.yelos.backend.datapost.dto.DataPostResponse;
+import com.yelos.backend.datapost.models.DataPostStatus;
 import com.yelos.backend.datapost.models.Genre;
 import com.yelos.backend.datapost.services.DataPostService;
 import com.yelos.backend.globaldto.PageResponse;
@@ -318,7 +319,11 @@ class DataPostControllerTest {
                 Instant.now(),
                 "test.csv",
                 "text/csv",
-                36L
+                36L,
+                Instant.now(),
+                DataPostStatus.ACTIVE,
+                1
+
         );
     }
 

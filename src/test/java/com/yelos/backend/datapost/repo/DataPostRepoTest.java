@@ -41,7 +41,8 @@ class DataPostRepoTest {
                     Genre.CODING,
                     "Seller 1 Dataset",
                     "Summary 1",
-                    BigDecimal.valueOf(30)
+                    BigDecimal.valueOf(30),
+                    DataPostStatus.ACTIVE
             ));
 
             dataPostRepo.save(post(
@@ -49,7 +50,8 @@ class DataPostRepoTest {
                     Genre.FINANCE,
                     "Seller 2 Dataset",
                     "Summary 2",
-                    BigDecimal.valueOf(40)
+                    BigDecimal.valueOf(40),
+                    DataPostStatus.ACTIVE
             ));
 
             Page<DataPost> result = dataPostRepo.findByUserId(
@@ -90,7 +92,8 @@ class DataPostRepoTest {
                     Genre.CODING,
                     "Coding Dataset",
                     "Coding Summary",
-                    BigDecimal.valueOf(30)
+                    BigDecimal.valueOf(30),
+                    DataPostStatus.ACTIVE
             ));
 
             dataPostRepo.save(post(
@@ -98,7 +101,8 @@ class DataPostRepoTest {
                     Genre.FINANCE,
                     "Finance Dataset",
                     "Finance Summary",
-                    BigDecimal.valueOf(40)
+                    BigDecimal.valueOf(40),
+                    DataPostStatus.ACTIVE
             ));
 
             Page<DataPost> result = dataPostRepo.findByGenre(
@@ -122,7 +126,8 @@ class DataPostRepoTest {
                     Genre.CODING,
                     "Coding Dataset",
                     "Coding Summary",
-                    BigDecimal.valueOf(30)
+                    BigDecimal.valueOf(30),
+                    DataPostStatus.ACTIVE
             ));
 
             Page<DataPost> result = dataPostRepo.findByGenre(
@@ -134,6 +139,111 @@ class DataPostRepoTest {
             assertThat(result.getTotalElements()).isEqualTo(0);
         }
     }
+
+    @Nested
+    class MarketplaceStatusTests {
+
+        @Test
+        void findByStatus_returnsOnlyActivePosts() {
+            AppUser seller = userRepo.save(user("seller1", Role.SELLER));
+
+            dataPostRepo.save(post(
+                    seller,
+                    Genre.CODING,
+                    "Active Dataset",
+                    "Active Summary",
+                    BigDecimal.valueOf(30),
+                    DataPostStatus.ACTIVE
+            ));
+
+            dataPostRepo.save(post(
+                    seller,
+                    Genre.FINANCE,
+                    "Deleted Dataset",
+                    "Deleted Summary",
+                    BigDecimal.valueOf(40),
+                    DataPostStatus.DELETED
+            ));
+
+            Page<DataPost> result = dataPostRepo.findByStatus(
+                    DataPostStatus.ACTIVE,
+                    PageRequest.of(0, 10)
+            );
+
+            assertThat(result.getContent()).hasSize(1);
+            assertThat(result.getContent().get(0).getTitle()).isEqualTo("Active Dataset");
+            assertThat(result.getContent().get(0).getStatus()).isEqualTo(DataPostStatus.ACTIVE);
+        }
+
+        @Test
+        void findByGenreAndStatus_returnsOnlyMatchingActiveGenre() {
+            AppUser seller = userRepo.save(user("seller1", Role.SELLER));
+
+            dataPostRepo.save(post(
+                    seller,
+                    Genre.CODING,
+                    "Active Coding Dataset",
+                    "Coding Summary",
+                    BigDecimal.valueOf(30),
+                    DataPostStatus.ACTIVE
+            ));
+
+            dataPostRepo.save(post(
+                    seller,
+                    Genre.CODING,
+                    "Deleted Coding Dataset",
+                    "Deleted Coding Summary",
+                    BigDecimal.valueOf(40),
+                    DataPostStatus.DELETED
+            ));
+
+            dataPostRepo.save(post(
+                    seller,
+                    Genre.FINANCE,
+                    "Active Finance Dataset",
+                    "Finance Summary",
+                    BigDecimal.valueOf(50),
+                    DataPostStatus.ACTIVE
+            ));
+
+            Page<DataPost> result = dataPostRepo.findByGenreAndStatus(
+                    Genre.CODING,
+                    DataPostStatus.ACTIVE,
+                    PageRequest.of(0, 10)
+            );
+
+            assertThat(result.getContent()).hasSize(1);
+            assertThat(result.getContent().get(0).getGenre()).isEqualTo(Genre.CODING);
+            assertThat(result.getContent().get(0).getStatus()).isEqualTo(DataPostStatus.ACTIVE);
+            assertThat(result.getContent().get(0).getTitle()).isEqualTo("Active Coding Dataset");
+            assertThat(result.getContent().get(0).getFileName()).isEqualTo("test.csv");
+            assertThat(result.getContent().get(0).getBucketName()).isEqualTo("yelos-datasets");
+        }
+
+        @Test
+        void findByGenreAndStatus_noMatchingActiveGenre_returnsEmptyPage() {
+            AppUser seller = userRepo.save(user("seller1", Role.SELLER));
+
+            dataPostRepo.save(post(
+                    seller,
+                    Genre.CODING,
+                    "Coding Dataset",
+                    "Coding Summary",
+                    BigDecimal.valueOf(30),
+                    DataPostStatus.ACTIVE
+            ));
+
+            Page<DataPost> result = dataPostRepo.findByGenreAndStatus(
+                    Genre.FINANCE,
+                    DataPostStatus.ACTIVE,
+                    PageRequest.of(0, 10)
+            );
+
+            assertThat(result.getContent()).isEmpty();
+            assertThat(result.getTotalElements()).isEqualTo(0);
+        }
+    }
+
 
     private AppUser user(
             String username,
@@ -155,7 +265,8 @@ class DataPostRepoTest {
             Genre genre,
             String title,
             String summary,
-            BigDecimal price
+            BigDecimal price,
+            DataPostStatus status
     ) {
         return new DataPost(
                 user,
@@ -163,7 +274,7 @@ class DataPostRepoTest {
                 title,
                 summary,
                 price,
-                DataPostStatus.ACTIVE,
+                status,
                 Instant.now(),
                 "test.csv",
                 "text/csv",

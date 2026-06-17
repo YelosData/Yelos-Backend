@@ -211,7 +211,8 @@ class DataPostServiceTest {
 
             Page<DataPost> pageResult = new PageImpl<>(List.of(post));
 
-            when(dataPostRepo.findAll(any(Pageable.class))).thenReturn(pageResult);
+            when(dataPostRepo.findByStatus(eq(DataPostStatus.ACTIVE), any(Pageable.class)))
+                    .thenReturn(pageResult);
 
             PageResponse<DataPostPreviewResponse> response = dataPostService.getDataPost(
                     0,
@@ -226,7 +227,8 @@ class DataPostServiceTest {
             assertThat(response.content().get(0).summary()).isEqualTo("Coding summary");
             assertThat(response.content().get(0).genre()).isEqualTo(Genre.CODING);
 
-            verify(dataPostRepo).findAll(
+            verify(dataPostRepo).findByStatus(
+                    eq(DataPostStatus.ACTIVE),
                     argThat((Pageable pageable) ->
                             pageable.getPageNumber() == 0
                                     && pageable.getPageSize() == 12
@@ -235,6 +237,7 @@ class DataPostServiceTest {
                     )
             );
 
+            verify(dataPostRepo, never()).findAll(any(Pageable.class));
             verify(dataPostRepo, never()).findByGenre(any(), any(Pageable.class));
             verifyNoInteractions(userRepo);
             verifyNoInteractions(storageService);
@@ -256,8 +259,11 @@ class DataPostServiceTest {
 
             Page<DataPost> pageResult = new PageImpl<>(List.of(post));
 
-            when(dataPostRepo.findByGenre(eq(Genre.FINANCE), any(Pageable.class)))
-                    .thenReturn(pageResult);
+            when(dataPostRepo.findByGenreAndStatus(
+                    eq(Genre.FINANCE),
+                    eq(DataPostStatus.ACTIVE),
+                    any(Pageable.class)
+            )).thenReturn(pageResult);
 
             PageResponse<DataPostPreviewResponse> response = dataPostService.getDataPost(
                     0,
@@ -270,8 +276,9 @@ class DataPostServiceTest {
             assertThat(response.content().get(0).genre()).isEqualTo(Genre.FINANCE);
             assertThat(response.content().get(0).title()).isEqualTo("Finance Dataset");
 
-            verify(dataPostRepo).findByGenre(
+            verify(dataPostRepo).findByGenreAndStatus(
                     eq(Genre.FINANCE),
+                    eq(DataPostStatus.ACTIVE),
                     argThat(pageable ->
                             pageable.getPageNumber() == 0
                                     && pageable.getPageSize() == 12
@@ -289,7 +296,8 @@ class DataPostServiceTest {
         void getDataPost_invalidPageAndSize_normalizesValues() {
             Page<DataPost> emptyPage = new PageImpl<>(List.of());
 
-            when(dataPostRepo.findAll(any(Pageable.class))).thenReturn(emptyPage);
+            when(dataPostRepo.findByStatus(eq(DataPostStatus.ACTIVE), any(Pageable.class)))
+                    .thenReturn(emptyPage);
 
             PageResponse<DataPostPreviewResponse> response = dataPostService.getDataPost(
                     -5,
@@ -300,7 +308,9 @@ class DataPostServiceTest {
 
             assertThat(response.content()).isEmpty();
 
-            verify(dataPostRepo).findAll(argThat((Pageable pageable) ->
+            verify(dataPostRepo).findByStatus(
+                    eq(DataPostStatus.ACTIVE),
+                    argThat((Pageable pageable) ->
                     pageable.getPageNumber() == 0
                             && pageable.getPageSize() == 12
             ));
@@ -329,8 +339,11 @@ class DataPostServiceTest {
             Page<DataPost> pageResult = new PageImpl<>(List.of(post));
 
             when(userRepo.findById(userId)).thenReturn(Optional.of(seller));
-            when(dataPostRepo.findByUserId(eq(userId), any(Pageable.class)))
-                    .thenReturn(pageResult);
+            when(dataPostRepo.findByUserIdAndStatusNot(
+                    eq(userId),
+                    eq(DataPostStatus.DELETED),
+                    any(Pageable.class)
+            )).thenReturn(pageResult);
 
             PageResponse<DataPostResponse> response = dataPostService.getAllDataPostsByUid(
                     userId,
@@ -349,8 +362,9 @@ class DataPostServiceTest {
 
             verify(userRepo).findById(userId);
 
-            verify(dataPostRepo).findByUserId(
+            verify(dataPostRepo).findByUserIdAndStatusNot(
                     eq(userId),
+                    eq(DataPostStatus.DELETED),
                     argThat(pageable ->
                             pageable.getPageNumber() == 0
                                     && pageable.getPageSize() == 12
@@ -358,6 +372,8 @@ class DataPostServiceTest {
                                     && pageable.getSort().getOrderFor("createdAt").isAscending()
                     )
             );
+
+            verify(dataPostRepo, never()).findByUserId(any(), any(Pageable.class));
 
             verifyNoInteractions(storageService);
         }

@@ -1,18 +1,15 @@
 package com.yelos.backend.datapost.controllers;
 
 import com.yelos.backend.datapost.dto.DataPostPreviewResponse;
-import com.yelos.backend.datapost.dto.GenreReponse;
 import com.yelos.backend.datapost.models.Genre;
 import com.yelos.backend.datapost.services.DataPostService;
 import com.yelos.backend.datapost.dto.DataPostResponse;
-import com.yelos.backend.datapost.dto.PostRequest;
 import com.yelos.backend.globaldto.PageResponse;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.math.BigDecimal;
-import java.util.List;
 
 @RestController
 @RequestMapping("/api/datapost")
@@ -41,6 +38,39 @@ public class DataPostController {
                 file
         );
     }
+
+    @PutMapping(
+            value = "/posts/{postId}",
+            consumes = MediaType.MULTIPART_FORM_DATA_VALUE
+    )
+    public DataPostResponse updatePost(
+            @PathVariable Long postId,
+            @RequestParam Long userId,
+            @RequestParam String title,
+            @RequestParam String summary,
+            @RequestParam BigDecimal price,
+            @RequestParam Genre genre,
+            @RequestParam(required = false) MultipartFile file
+    ) {
+        return dataPostService.updatePost(
+                postId,
+                userId,
+                title,
+                summary,
+                genre,
+                price,
+                file
+        );
+    }
+
+    @DeleteMapping("/posts/{postId}")
+    public void deletePost(
+            @PathVariable Long postId,
+            @RequestParam Long userId
+    ) {
+        dataPostService.deletePost(postId, userId);
+    }
+
 
     @GetMapping("/marketplace")
     public PageResponse<DataPostPreviewResponse> getPosts(

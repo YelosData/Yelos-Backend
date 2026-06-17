@@ -1,5 +1,6 @@
 package com.yelos.backend.datapost.models;
 
+import com.yelos.backend.storage.dto.StoredFile;
 import com.yelos.backend.user.models.AppUser;
 import jakarta.persistence.*;
 
@@ -31,6 +32,9 @@ public class DataPost {
 
     @Enumerated(EnumType.STRING)
     private DataPostStatus status;
+    private Instant updatedAt;
+    private Instant deletedAt;
+    private Integer version;
 
     private String fileName;
     private String fileType;
@@ -64,6 +68,9 @@ public class DataPost {
         this.price = price;
         this.status = status;
         this.createdAt = createdAt;
+        this.updatedAt = createdAt;
+        this.deletedAt = null;
+        this.version = 1;
         this.fileName = fileName;
         this.fileType = fileType;
         this.fileSize = fileSize;
@@ -118,5 +125,75 @@ public class DataPost {
 
     public String getObjectKey() {
         return this.objectKey;
+    }
+
+    public Instant getUpdatedAt() {
+        return this.updatedAt;
+    }
+
+    public Instant getDeletedAt() {
+        return this.deletedAt;
+    }
+
+    public Integer getVersion() {
+        return this.version;
+    }
+    @PrePersist
+    public void prePersist() {
+        if (this.createdAt == null) {
+            this.createdAt = Instant.now();
+        }
+
+        if (this.updatedAt == null) {
+            this.updatedAt = this.createdAt;
+        }
+
+        if (this.status == null) {
+            this.status = DataPostStatus.ACTIVE;
+        }
+
+        if (this.version == null) {
+            this.version = 1;
+        }
+    }
+
+    public void updatePost(
+            Genre genre,
+            String title,
+            String summary,
+            BigDecimal price,
+            StoredFile storedFile,
+            Instant now
+    ) {
+        this.genre = genre;
+        this.title = title;
+        this.summary = summary;
+        this.price = price;
+
+        if (storedFile != null) {
+            this.fileName = storedFile.fileName();
+            this.fileType = storedFile.fileType();
+            this.fileSize = storedFile.fileSize();
+            this.bucketName = storedFile.bucketName();
+            this.objectKey = storedFile.objectKey();
+
+            incrementVersion();
+        }
+
+        this.updatedAt = now;
+    }
+
+    public void markDeleted(Instant now) {
+        this.status = DataPostStatus.DELETED;
+        this.deletedAt = now;
+        this.updatedAt = now;
+    }
+
+    public boolean isDeleted() {
+        return this.status == DataPostStatus.DELETED;
+    }
+
+    private void incrementVersion() {
+        this.version = this.version == null ? 1 : this.version + 1;
     }
 }

@@ -1,5 +1,6 @@
 package com.yelos.backend.datapost.dto;
 
+import com.yelos.backend.datapost.models.DataPostStatus;
 import com.yelos.backend.datapost.models.Genre;
 
 import java.math.BigDecimal;
@@ -14,9 +15,11 @@ public record DataPostResponse(
         Genre genre,
         BigDecimal price,
         Instant createdAt,
-
         String fileName,
         String fileType,
-        Long fileSize
+        Long fileSize,
+        Instant updatedAt,
+        DataPostStatus status,
+        Integer version
 ) {
 }

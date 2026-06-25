@@ -88,12 +88,6 @@ public abstract class IntegrationTestBase {
     @Autowired
     protected RequestSubmissionRepo requestSubmissionRepo;
 
-    @MockitoBean
-    protected AiService aiService;
-
-    @MockitoBean
-    protected StorageService storageService;
-
     @BeforeEach
     void cleanDatabase() {
         requestSubmissionRepo.deleteAll();

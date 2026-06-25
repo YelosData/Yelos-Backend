@@ -1,5 +1,7 @@
 package com.yelos.backend.datapost.services;
 
+import com.yelos.backend.ai.dto.AiPipelineResponse;
+import com.yelos.backend.ai.services.AiService;
 import com.yelos.backend.datapost.dto.DataPostPreviewResponse;
 import com.yelos.backend.datapost.dto.DataPostResponse;
 import com.yelos.backend.datapost.models.DataPost;
@@ -17,15 +19,18 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.Base64;
 import java.util.List;
 import java.util.Optional;
 
@@ -44,6 +49,9 @@ class DataPostServiceTest {
 
     @Mock
     private StorageService storageService;
+
+    @Mock
+    private AiService aiService;
 
     @InjectMocks
     private DataPostService dataPostService;
@@ -74,7 +82,14 @@ class DataPostServiceTest {
             );
 
             when(userRepo.findById(userId)).thenReturn(Optional.of(seller));
-            when(storageService.uploadDatasetFile(userId, file)).thenReturn(storedFile);
+            mockAiPipeline();
+
+            when(storageService.uploadDatasetBytes(
+                    eq(userId),
+                    eq("test.csv"),
+                    eq("text/csv"),
+                    any(byte[].class)
+            )).thenReturn(storedFile);
 
             when(dataPostRepo.save(any(DataPost.class))).thenAnswer(invocation -> {
                 DataPost savedPost = invocation.getArgument(0);
@@ -85,7 +100,6 @@ class DataPostServiceTest {
             DataPostResponse response = dataPostService.postDataPosts(
                     userId,
                     "Coding Dataset",
-                    "Coding summary",
                     BigDecimal.valueOf(30),
                     Genre.CODING,
                     file
@@ -102,9 +116,20 @@ class DataPostServiceTest {
             assertThat(response.fileName()).isEqualTo("test.csv");
             assertThat(response.fileType()).isEqualTo("text/csv");
             assertThat(response.fileSize()).isEqualTo(36L);
+            assertThat(response.status()).isEqualTo(DataPostStatus.ACTIVE);
+            assertThat(response.previewCsv()).isEqualTo("id,name,value\n1,Alice,100");
+            assertThat(response.aiFlagged()).isFalse();
+            assertThat(response.aiFlagDetails()).isNull();
 
             verify(userRepo).findById(userId);
-            verify(storageService).uploadDatasetFile(userId, file);
+            verify(aiService).runPipeline(file);
+
+            verify(storageService).uploadDatasetBytes(
+                    eq(userId),
+                    eq("test.csv"),
+                    eq("text/csv"),
+                    any(byte[].class)
+            );
 
             verify(dataPostRepo).save(argThat(post ->
                     post.getUser().equals(seller)
@@ -118,6 +143,9 @@ class DataPostServiceTest {
                             && post.getFileSize().equals(36L)
                             && post.getBucketName().equals("yelos-datasets")
                             && post.getObjectKey().equals("sellers/1/posts/test-file.csv")
+                            && post.getPreviewCsv().equals("id,name,value\n1,Alice,100")
+                            && Boolean.FALSE.equals(post.getAiFlagged())
+                            && post.getAiFlagDetails() == null
             ));
         }
 
@@ -128,9 +156,9 @@ class DataPostServiceTest {
 
             when(userRepo.findById(userId)).thenReturn(Optional.empty());
 
-            assertThatThrownBy(() -> dataPostService.postDataPosts(  userId,
+            assertThatThrownBy(() -> dataPostService.postDataPosts(
+                    userId,
                     "Coding Dataset",
-                    "Coding summary",
                     BigDecimal.valueOf(30),
                     Genre.CODING,
                     file
@@ -141,6 +169,7 @@ class DataPostServiceTest {
             verify(userRepo).findById(userId);
             verifyNoInteractions(dataPostRepo);
             verifyNoInteractions(storageService);
+            verifyNoInteractions(aiService);
         }
     }
 
@@ -156,7 +185,6 @@ class DataPostServiceTest {
                     seller,
                     Genre.CODING,
                     "Coding Dataset",
-                    "Full coding content",
                     "Coding summary",
                     BigDecimal.valueOf(30)
             );
@@ -172,10 +200,13 @@ class DataPostServiceTest {
             assertThat(response.summary()).isEqualTo("Coding summary");
             assertThat(response.genre()).isEqualTo(Genre.CODING);
             assertThat(response.price()).isEqualByComparingTo(BigDecimal.valueOf(30));
+            assertThat(response.previewCsv()).isEqualTo("id,name,value\n1,Alice,100");
+            assertThat(response.aiFlagged()).isFalse();
 
             verify(dataPostRepo).findById(10L);
             verifyNoInteractions(userRepo);
             verifyNoInteractions(storageService);
+            verifyNoInteractions(aiService);
         }
 
         @Test
@@ -189,6 +220,7 @@ class DataPostServiceTest {
             verify(dataPostRepo).findById(10L);
             verifyNoInteractions(userRepo);
             verifyNoInteractions(storageService);
+            verifyNoInteractions(aiService);
         }
     }
 
@@ -204,7 +236,6 @@ class DataPostServiceTest {
                     seller,
                     Genre.CODING,
                     "Coding Dataset",
-                    "Full coding content",
                     "Coding summary",
                     BigDecimal.valueOf(30)
             );
@@ -241,6 +272,7 @@ class DataPostServiceTest {
             verify(dataPostRepo, never()).findByGenre(any(), any(Pageable.class));
             verifyNoInteractions(userRepo);
             verifyNoInteractions(storageService);
+            verifyNoInteractions(aiService);
         }
 
         @Test
@@ -252,7 +284,6 @@ class DataPostServiceTest {
                     seller,
                     Genre.FINANCE,
                     "Finance Dataset",
-                    "Finance content",
                     "Finance summary",
                     BigDecimal.valueOf(40)
             );
@@ -279,7 +310,7 @@ class DataPostServiceTest {
             verify(dataPostRepo).findByGenreAndStatus(
                     eq(Genre.FINANCE),
                     eq(DataPostStatus.ACTIVE),
-                    argThat(pageable ->
+                    argThat((Pageable pageable) ->
                             pageable.getPageNumber() == 0
                                     && pageable.getPageSize() == 12
                                     && pageable.getSort().getOrderFor("price") != null
@@ -290,6 +321,7 @@ class DataPostServiceTest {
             verify(dataPostRepo, never()).findAll(any(Pageable.class));
             verifyNoInteractions(userRepo);
             verifyNoInteractions(storageService);
+            verifyNoInteractions(aiService);
         }
 
         @Test
@@ -311,9 +343,14 @@ class DataPostServiceTest {
             verify(dataPostRepo).findByStatus(
                     eq(DataPostStatus.ACTIVE),
                     argThat((Pageable pageable) ->
-                    pageable.getPageNumber() == 0
-                            && pageable.getPageSize() == 12
-            ));
+                            pageable.getPageNumber() == 0
+                                    && pageable.getPageSize() == 12
+                    )
+            );
+
+            verifyNoInteractions(userRepo);
+            verifyNoInteractions(storageService);
+            verifyNoInteractions(aiService);
         }
     }
 
@@ -331,7 +368,6 @@ class DataPostServiceTest {
                     seller,
                     Genre.CODING,
                     "Coding Dataset",
-                    "Full coding content",
                     "Coding summary",
                     BigDecimal.valueOf(30)
             );
@@ -359,13 +395,15 @@ class DataPostServiceTest {
             assertThat(response.content().get(0).fileName()).isEqualTo("test.csv");
             assertThat(response.content().get(0).fileType()).isEqualTo("text/csv");
             assertThat(response.content().get(0).fileSize()).isEqualTo(36L);
+            assertThat(response.content().get(0).previewCsv()).isEqualTo("id,name,value\n1,Alice,100");
+            assertThat(response.content().get(0).aiFlagged()).isFalse();
 
             verify(userRepo).findById(userId);
 
             verify(dataPostRepo).findByUserIdAndStatusNot(
                     eq(userId),
                     eq(DataPostStatus.DELETED),
-                    argThat(pageable ->
+                    argThat((Pageable pageable) ->
                             pageable.getPageNumber() == 0
                                     && pageable.getPageSize() == 12
                                     && pageable.getSort().getOrderFor("createdAt") != null
@@ -376,6 +414,7 @@ class DataPostServiceTest {
             verify(dataPostRepo, never()).findByUserId(any(), any(Pageable.class));
 
             verifyNoInteractions(storageService);
+            verifyNoInteractions(aiService);
         }
 
         @Test
@@ -393,7 +432,26 @@ class DataPostServiceTest {
             verify(userRepo).findById(userId);
             verifyNoInteractions(dataPostRepo);
             verifyNoInteractions(storageService);
+            verifyNoInteractions(aiService);
         }
+    }
+
+    private void mockAiPipeline() {
+        AiPipelineResponse aiResult = Mockito.mock(AiPipelineResponse.class, RETURNS_DEEP_STUBS);
+
+        String csvContent = "id,name,value\n1,Alice,100\n2,Bob,200";
+        String base64Content = Base64.getEncoder().encodeToString(csvContent.getBytes());
+
+        lenient().when(aiService.runPipeline(any(MultipartFile.class))).thenReturn(aiResult);
+
+        lenient().when(aiResult.summary()).thenReturn("Coding summary");
+        lenient().when(aiResult.previewCsv()).thenReturn("id,name,value\n1,Alice,100");
+        lenient().when(aiResult.flagged()).thenReturn(false);
+        lenient().when(aiResult.flagDetails()).thenReturn(null);
+
+        lenient().when(aiResult.piiFile().fileName()).thenReturn("test.csv");
+        lenient().when(aiResult.piiFile().contentType()).thenReturn("text/csv");
+        lenient().when(aiResult.piiFile().contentBase64()).thenReturn(base64Content);
     }
 
     private MockMultipartFile datasetFile() {
@@ -431,7 +489,6 @@ class DataPostServiceTest {
             AppUser user,
             Genre genre,
             String title,
-            String content,
             String summary,
             BigDecimal price
     ) {
@@ -440,7 +497,7 @@ class DataPostServiceTest {
                 genre,
                 title,
                 summary,
-                price   ,
+                price,
                 DataPostStatus.ACTIVE,
                 Instant.now(),
                 "test.csv",
@@ -451,6 +508,9 @@ class DataPostServiceTest {
         );
 
         ReflectionTestUtils.setField(post, "id", id);
+        ReflectionTestUtils.setField(post, "previewCsv", "id,name,value\n1,Alice,100");
+        ReflectionTestUtils.setField(post, "aiFlagged", false);
+        ReflectionTestUtils.setField(post, "aiFlagDetails", null);
 
         return post;
     }

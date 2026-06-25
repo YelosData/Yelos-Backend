@@ -1,6 +1,8 @@
 package com.yelos.backend.datapost.services;
 
-
+import com.yelos.backend.ai.dto.AiPipelineResponse;
+import com.yelos.backend.ai.dto.ProcessedAiFile;
+import com.yelos.backend.ai.services.AiService;
 import com.yelos.backend.datapost.dto.DataPostPreviewResponse;
 import com.yelos.backend.datapost.dto.PostRequest;
 import com.yelos.backend.datapost.dto.DataPostResponse;
@@ -23,6 +25,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.util.Base64;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
@@ -33,18 +36,24 @@ public class DataPostService {
     private final DataPostRepo dataPostRepo;
     private final UserRepo userRepo;
     private final StorageService storageService;
+    private final AiService aiService;
 
-    public DataPostService(UserRepo userRepo, DataPostRepo dataPostRepo, StorageService storageService){
+    public DataPostService(
+            UserRepo userRepo,
+            DataPostRepo dataPostRepo,
+            StorageService storageService,
+            AiService aiService
+    ) {
         this.userRepo = userRepo;
         this.dataPostRepo = dataPostRepo;
         this.storageService = storageService;
+        this.aiService = aiService;
     }
 
 
     public DataPostResponse postDataPosts(
             Long userId,
             String title,
-            String summary,
             BigDecimal price,
             Genre genre,
             MultipartFile file
@@ -52,20 +61,26 @@ public class DataPostService {
         AppUser user = userRepo.findById(userId)
                 .orElseThrow(() -> new RuntimeException("User does not exist"));
 
-        StoredFile storedFile = null;
+        ProcessedAiFile processedAiFile = null;
 
         try {
-            storedFile = storageService.uploadDatasetFile(userId, file);
+            processedAiFile = processFileWithAiAndUpload(userId, file);
         } catch (Exception e) {
             e.printStackTrace();
             throw e;
         }
 
+        StoredFile storedFile = processedAiFile.storedFile();
+        AiPipelineResponse aiResult = processedAiFile.aiResult();
+
+        // Ignore user-input summary for now. Use AI summary instead.
+        String aiSummary = getAiSummaryOrFallback(aiResult);
+
         DataPost post = new DataPost(
                 user,
                 genre,
                 title,
-                summary,
+                aiSummary,
                 price,
                 DataPostStatus.ACTIVE,
                 Instant.now(),
@@ -74,6 +89,13 @@ public class DataPostService {
                 storedFile.fileSize(),
                 storedFile.bucketName(),
                 storedFile.objectKey()
+        );
+
+        post.attachAiMetadata(
+                aiSummary,
+                aiResult.previewCsv(),
+                aiResult.flagged(),
+                aiResult.flagDetails()
         );
 
         DataPost savedPost = dataPostRepo.save(post);
@@ -246,7 +268,7 @@ public class DataPostService {
         StoredFile storedFile = null;
 
         if (file != null && !file.isEmpty()) {
-            storedFile = storageService.uploadDatasetFile(userId, file);
+            storedFile = processFileWithAiAndUpload(userId, file).storedFile();
         }
 
         post.updatePost(
@@ -257,6 +279,77 @@ public class DataPostService {
                 storedFile,
                 Instant.now()
         );
+
+        return toDataPostResponse(post);
+    }
+
+    @Transactional(readOnly = true)
+    public PageResponse<DataPostResponse> getUnreviewedActivePosts(
+            int page,
+            int size,
+            String sort
+    ) {
+        Sort sortObj = switch (sort) {
+            case "priceAsc" -> Sort.by("price").ascending();
+            case "priceDesc" -> Sort.by("price").descending();
+            case "oldest" -> Sort.by("createdAt").ascending();
+            default -> Sort.by("createdAt").descending();
+        };
+
+        Pageable pageable = PageRequest.of(page, size, sortObj);
+
+        Page<DataPost> result = dataPostRepo.findByStatusAndAdminReviewedFalse(
+                DataPostStatus.ACTIVE,
+                pageable
+        );
+
+        return new PageResponse<>(
+                result.getContent().stream()
+                        .map(this::toDataPostResponse)
+                        .toList(),
+                result.getNumber(),
+                result.getSize(),
+                result.getTotalElements(),
+                result.getTotalPages(),
+                result.isLast()
+        );
+    }
+
+    @Transactional
+    public DataPostResponse reviewPost(
+            Long postId,
+            Long adminId,
+            DataPostStatus status,
+            String note
+    ) {
+        DataPost post = dataPostRepo.findById(postId)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND,
+                        "Post does not exist"
+                ));
+
+        if (adminId == null) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "Admin ID is required"
+            );
+        }
+
+        if (status != DataPostStatus.ACTIVE && status != DataPostStatus.DELETED) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "Admin review status must be ACTIVE or DELETED"
+            );
+        }
+
+        String cleanedNote = note == null ? null : note.trim();
+        Instant now = Instant.now();
+
+        if (status == DataPostStatus.ACTIVE) {
+            post.markReviewed(adminId, cleanedNote, now);
+        } else {
+            post.hideByAdmin(adminId, cleanedNote, now);
+        }
 
         return toDataPostResponse(post);
     }
@@ -296,6 +389,55 @@ public class DataPostService {
         }
     }
 
+    private ProcessedAiFile processFileWithAiAndUpload(Long userId, MultipartFile file) {
+        AiPipelineResponse aiResult = aiService.runPipeline(file);
+
+        if (aiResult == null || aiResult.piiFile() == null) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_GATEWAY,
+                    "AI service did not return a PII file"
+            );
+        }
+
+        AiPipelineResponse.PiiFile piiFile = aiResult.piiFile();
+
+        if (piiFile.contentBase64() == null || piiFile.contentBase64().isBlank()) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_GATEWAY,
+                    "AI service returned empty PII file content"
+            );
+        }
+
+        byte[] anonymizedCsvBytes;
+
+        try {
+            anonymizedCsvBytes = Base64.getDecoder().decode(piiFile.contentBase64());
+        } catch (IllegalArgumentException e) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_GATEWAY,
+                    "AI service returned invalid base64 CSV content"
+            );
+        }
+
+        StoredFile storedFile = storageService.uploadDatasetBytes(
+                userId,
+                piiFile.fileName(),
+                piiFile.contentType(),
+                anonymizedCsvBytes
+        );
+
+        return new ProcessedAiFile(storedFile, aiResult);
+    }
+
+    private String getAiSummaryOrFallback(AiPipelineResponse aiResult) {
+        if (aiResult != null && aiResult.summary() != null && !aiResult.summary().isBlank()) {
+            return aiResult.summary().trim();
+        }
+
+        return "AI summary unavailable.";
+    }
+
+
     private DataPostPreviewResponse toPreviewResponse(DataPost post) {
         return new DataPostPreviewResponse(
                 post.getId(),
@@ -305,7 +447,8 @@ public class DataPostService {
                 post.getSummary(),
                 post.getGenre(),
                 post.getPrice(),
-                post.getCreatedAt()
+                post.getCreatedAt(),
+                post.getAdminReviewed()
         );
     }
 
@@ -324,7 +467,15 @@ public class DataPostService {
                 post.getFileSize(),
                 post.getUpdatedAt(),
                 post.getStatus(),
-                post.getVersion()
+                post.getVersion(),
+                post.getAdminReviewed(),
+                post.getReviewedAt(),
+                post.getReviewedByAdminId(),
+                post.getAdminNote(),
+
+                post.getPreviewCsv(),
+                post.getAiFlagged(),
+                post.getAiFlagDetails()
         );
     }
 

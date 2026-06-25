@@ -20,6 +20,14 @@ public record DataPostResponse(
         Long fileSize,
         Instant updatedAt,
         DataPostStatus status,
-        Integer version
+        Integer version,
+        Boolean adminReviewed,
+        Instant reviewedAt,
+        Long reviewedByAdminId,
+        String adminNote,
+
+        String previewCsv,
+        Boolean aiFlagged,
+        String aiFlagDetails
 ) {
 }

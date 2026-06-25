@@ -32,4 +32,9 @@ public interface DataPostRepo extends JpaRepository<DataPost, Long> {
             DataPostStatus status,
             Pageable pageable
     );
+
+    Page<DataPost> findByStatusAndAdminReviewedFalse(
+            DataPostStatus status,
+            Pageable pageable
+    );
 }

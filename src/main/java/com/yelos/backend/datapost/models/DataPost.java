@@ -45,13 +45,30 @@ public class DataPost {
     @Column(nullable = false, unique = true)
     private String objectKey;
 
+    private Boolean adminReviewed;
+
+    private Instant reviewedAt;
+
+    private Long reviewedByAdminId;
+
+    @Column(columnDefinition = "TEXT")
+    private String adminNote;
+
+    @Column(columnDefinition = "TEXT")
+    private String previewCsv;
+
+    private Boolean aiFlagged;
+
+    @Column(columnDefinition = "TEXT")
+    private String aiFlagDetails;
+
     public DataPost(){};
 
     public DataPost(
             AppUser user,
             Genre genre,
             String title,
-            String summary,
+            String aiSummary,
             BigDecimal price,
             DataPostStatus status,
             Instant createdAt,
@@ -64,7 +81,7 @@ public class DataPost {
         this.user = user;
         this.genre = genre;
         this.title = title;
-        this.summary = summary;
+        this.summary = aiSummary;
         this.price = price;
         this.status = status;
         this.createdAt = createdAt;
@@ -76,6 +93,13 @@ public class DataPost {
         this.fileSize = fileSize;
         this.bucketName = bucketName;
         this.objectKey = objectKey;
+        this.adminReviewed = false;
+        this.reviewedAt = null;
+        this.reviewedByAdminId = null;
+        this.adminNote = null;
+        this.previewCsv = null;
+        this.aiFlagged = null;
+        this.aiFlagDetails = null;
     }
 
     public long getId() {
@@ -138,8 +162,52 @@ public class DataPost {
     public Integer getVersion() {
         return this.version;
     }
+
+    public Boolean getAdminReviewed() {
+        return this.adminReviewed;
+    }
+
+    public Instant getReviewedAt() {
+        return this.reviewedAt;
+    }
+
+    public Long getReviewedByAdminId() {
+        return this.reviewedByAdminId;
+    }
+
+    public String getAdminNote() {
+        return this.adminNote;
+    }
+
+    public String getPreviewCsv() {
+        return this.previewCsv;
+    }
+
+    public Boolean getAiFlagged() {
+        return this.aiFlagged;
+    }
+
+    public String getAiFlagDetails() {
+        return this.aiFlagDetails;
+    }
+
+    public void attachAiMetadata(
+            String aiSummary,
+            String previewCsv,
+            Boolean aiFlagged,
+            String aiFlagDetails
+    ) {
+        if (aiSummary != null && !aiSummary.isBlank()) {
+            this.summary = aiSummary;
+        }
+
+        this.previewCsv = previewCsv;
+        this.aiFlagged = aiFlagged;
+        this.aiFlagDetails = aiFlagDetails;
+    }
+
     @PrePersist
-    public void prePersist() {
+    public void prePersist() {              // For legacy entries whose fields are not valid and updated
         if (this.createdAt == null) {
             this.createdAt = Instant.now();
         }
@@ -150,6 +218,10 @@ public class DataPost {
 
         if (this.status == null) {
             this.status = DataPostStatus.ACTIVE;
+        }
+
+        if (this.adminReviewed == null) {
+            this.adminReviewed = false;
         }
 
         if (this.version == null) {
@@ -195,5 +267,22 @@ public class DataPost {
 
     private void incrementVersion() {
         this.version = this.version == null ? 1 : this.version + 1;
+    }
+
+    public void markReviewed(Long adminId, String note, Instant now) {
+        this.adminReviewed = true;
+        this.reviewedByAdminId = adminId;
+        this.reviewedAt = now;
+        this.adminNote = note;
+        this.updatedAt = now;
+    }
+
+    public void hideByAdmin(Long adminId, String note, Instant now) {
+        this.status = DataPostStatus.DELETED;
+        this.adminReviewed = true;
+        this.reviewedByAdminId = adminId;
+        this.reviewedAt = now;
+        this.adminNote = note;
+        this.updatedAt = now;
     }
 }

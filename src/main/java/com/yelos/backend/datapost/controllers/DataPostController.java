@@ -1,6 +1,7 @@
 package com.yelos.backend.datapost.controllers;
 
 import com.yelos.backend.datapost.dto.DataPostPreviewResponse;
+import com.yelos.backend.datapost.models.DataPostStatus;
 import com.yelos.backend.datapost.models.Genre;
 import com.yelos.backend.datapost.services.DataPostService;
 import com.yelos.backend.datapost.dto.DataPostResponse;
@@ -24,7 +25,6 @@ public class DataPostController {
     public DataPostResponse createPost(
             @RequestParam Long userId,
             @RequestParam String title,
-            @RequestParam String summary,
             @RequestParam BigDecimal price,
             @RequestParam Genre genre,
             @RequestParam MultipartFile file
@@ -32,7 +32,6 @@ public class DataPostController {
         return dataPostService.postDataPosts(
                 userId,
                 title,
-                summary,
                 price,
                 genre,
                 file
@@ -95,6 +94,30 @@ public class DataPostController {
     @GetMapping("/posts/{id}")
     public DataPostResponse getDataPostById(@PathVariable long id) {
         return dataPostService.getDataPostById(id);
+    }
+
+    @GetMapping("/admin/posts/unreviewed")
+    public PageResponse<DataPostResponse> getUnreviewedActivePosts(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "12") int size,
+            @RequestParam(defaultValue = "newest") String sort
+    ) {
+        return dataPostService.getUnreviewedActivePosts(page, size, sort);
+    }
+
+    @PatchMapping("/admin/posts/{postId}/review")
+    public DataPostResponse reviewPost(
+            @PathVariable Long postId,
+            @RequestParam Long adminId,
+            @RequestParam DataPostStatus status,
+            @RequestParam(required = false) String note
+    ) {
+        return dataPostService.reviewPost(
+                postId,
+                adminId,
+                status,
+                note
+        );
     }
 
 //    @GetMapping("/genres")

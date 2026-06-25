@@ -9,6 +9,7 @@ import com.yelos.backend.globaldto.PageResponse;
 import com.yelos.backend.security.JwtService;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
@@ -21,6 +22,7 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -65,18 +67,15 @@ class DataPostControllerTest {
             when(dataPostService.postDataPosts(
                     eq(1L),
                     eq("Coding Dataset"),
-                    eq("Coding summary"),
                     eq(BigDecimal.valueOf(30)),
                     eq(Genre.CODING),
                     any(MultipartFile.class)
-            ))
-                    .thenReturn(response);
+            )).thenReturn(response);
 
             mockMvc.perform(multipart("/api/datapost")
                             .file(file)
                             .param("userId", "1")
                             .param("title", "Coding Dataset")
-                            .param("summary", "Coding summary")
                             .param("price", "30")
                             .param("genre", "CODING"))
                     .andExpect(status().isOk())
@@ -90,20 +89,29 @@ class DataPostControllerTest {
                     .andExpect(jsonPath("$.createdAt").exists())
                     .andExpect(jsonPath("$.fileName").value("test.csv"))
                     .andExpect(jsonPath("$.fileType").value("text/csv"))
-                    .andExpect(jsonPath("$.fileSize").value(36));
+                    .andExpect(jsonPath("$.fileSize").value(36))
+                    .andExpect(jsonPath("$.updatedAt").exists())
+                    .andExpect(jsonPath("$.status").value("ACTIVE"))
+                    .andExpect(jsonPath("$.version").value(1))
+                    .andExpect(jsonPath("$.adminReviewed").value(false))
+                    .andExpect(jsonPath("$.previewCsv").value("id,name,value\n1,Alice,100"))
+                    .andExpect(jsonPath("$.aiFlagged").value(false));
+
+            ArgumentCaptor<MultipartFile> fileCaptor = ArgumentCaptor.forClass(MultipartFile.class);
 
             verify(dataPostService).postDataPosts(
                     eq(1L),
                     eq("Coding Dataset"),
-                    eq("Coding summary"),
                     eq(BigDecimal.valueOf(30)),
                     eq(Genre.CODING),
-                    argThat(uploadedFile ->
-                            uploadedFile.getName().equals("file")
-                                    && uploadedFile.getOriginalFilename().equals("test.csv")
-                                    && uploadedFile.getContentType().equals("text/csv")
-                    )
+                    fileCaptor.capture()
             );
+
+            MultipartFile uploadedFile = fileCaptor.getValue();
+
+            assertThat(uploadedFile.getName()).isEqualTo("file");
+            assertThat(uploadedFile.getOriginalFilename()).isEqualTo("test.csv");
+            assertThat(uploadedFile.getContentType()).isEqualTo("text/csv");
         }
     }
 
@@ -247,9 +255,15 @@ class DataPostControllerTest {
                     .andExpect(jsonPath("$.content[0].id").value(10L))
                     .andExpect(jsonPath("$.content[0].userId").value(1L))
                     .andExpect(jsonPath("$.content[0].title").value("Coding Dataset"))
+                    .andExpect(jsonPath("$.content[0].summary").value("Coding summary"))
                     .andExpect(jsonPath("$.content[0].fileName").value("test.csv"))
                     .andExpect(jsonPath("$.content[0].fileType").value("text/csv"))
                     .andExpect(jsonPath("$.content[0].fileSize").value(36))
+                    .andExpect(jsonPath("$.content[0].status").value("ACTIVE"))
+                    .andExpect(jsonPath("$.content[0].version").value(1))
+                    .andExpect(jsonPath("$.content[0].adminReviewed").value(false))
+                    .andExpect(jsonPath("$.content[0].previewCsv").value("id,name,value\n1,Alice,100"))
+                    .andExpect(jsonPath("$.content[0].aiFlagged").value(false))
                     .andExpect(jsonPath("$.page").value(0))
                     .andExpect(jsonPath("$.size").value(12));
 
@@ -293,7 +307,13 @@ class DataPostControllerTest {
                     .andExpect(jsonPath("$.createdAt").exists())
                     .andExpect(jsonPath("$.fileName").value("test.csv"))
                     .andExpect(jsonPath("$.fileType").value("text/csv"))
-                    .andExpect(jsonPath("$.fileSize").value(36));
+                    .andExpect(jsonPath("$.fileSize").value(36))
+                    .andExpect(jsonPath("$.updatedAt").exists())
+                    .andExpect(jsonPath("$.status").value("ACTIVE"))
+                    .andExpect(jsonPath("$.version").value(1))
+                    .andExpect(jsonPath("$.adminReviewed").value(false))
+                    .andExpect(jsonPath("$.previewCsv").value("id,name,value\n1,Alice,100"))
+                    .andExpect(jsonPath("$.aiFlagged").value(false));
 
             verify(dataPostService).getDataPostById(postId);
         }
@@ -308,6 +328,8 @@ class DataPostControllerTest {
             Genre genre,
             BigDecimal price
     ) {
+        Instant now = Instant.now();
+
         return new DataPostResponse(
                 id,
                 userId,
@@ -316,20 +338,26 @@ class DataPostControllerTest {
                 summary,
                 genre,
                 price,
-                Instant.now(),
+                now,
                 "test.csv",
                 "text/csv",
                 36L,
-                Instant.now(),
+                now,
                 DataPostStatus.ACTIVE,
-                1
-
+                1,
+                false,
+                null,
+                null,
+                null,
+                "id,name,value\n1,Alice,100",
+                false,
+                null
         );
     }
 
     private DataPostPreviewResponse dataPostPreviewResponse(
-            Long id,
-            Long userId,
+            long id,
+            long userId,
             String username,
             String title,
             String summary,
@@ -344,7 +372,8 @@ class DataPostControllerTest {
                 summary,
                 genre,
                 price,
-                Instant.now()
+                Instant.now(),
+                false
         );
     }
 }

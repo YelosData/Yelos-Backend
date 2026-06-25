@@ -1,7 +1,8 @@
-
 package com.yelos.backend.datapost;
 
 import com.yelos.backend.IntegrationTestBase;
+import com.yelos.backend.ai.dto.AiPipelineResponse;
+import com.yelos.backend.ai.services.AiService;
 import com.yelos.backend.datapost.models.DataPost;
 import com.yelos.backend.datapost.models.DataPostStatus;
 import com.yelos.backend.datapost.models.Genre;
@@ -13,25 +14,31 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.Base64;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.*;
-import static org.springframework.http.MediaType.APPLICATION_JSON;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
-
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.RETURNS_DEEP_STUBS;
+import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 class DataPostIntegrationTest extends IntegrationTestBase {
 
     @MockitoBean
     private StorageService storageService;
+
+    @MockitoBean
+    private AiService aiService;
 
     @Nested
     class CreatePostTests {
@@ -47,21 +54,26 @@ class DataPostIntegrationTest extends IntegrationTestBase {
                     "id,name,value\n1,Alice,100\n2,Bob,200".getBytes()
             );
 
-            when(storageService.uploadDatasetFile(eq(seller.getId()), any(MultipartFile.class)))
-                    .thenReturn(new StoredFile(
-                            "yelos-datasets",
-                            "sellers/" + seller.getId() + "/posts/test-file.csv",
-                            "test.csv",
-                            "text/csv",
-                            36L,
-                            Instant.now()
-                    ));
+            mockAiPipeline();
+
+            when(storageService.uploadDatasetBytes(
+                    eq(seller.getId()),
+                    eq("test.csv"),
+                    eq("text/csv"),
+                    any(byte[].class)
+            )).thenReturn(new StoredFile(
+                    "yelos-datasets",
+                    "sellers/" + seller.getId() + "/posts/test-file.csv",
+                    "test.csv",
+                    "text/csv",
+                    36L,
+                    Instant.now()
+            ));
 
             mockMvc.perform(multipart("/api/datapost")
                             .file(file)
                             .param("userId", String.valueOf(seller.getId()))
                             .param("title", "Coding Dataset")
-                            .param("summary", "Coding summary")
                             .param("price", "30")
                             .param("genre", "CODING"))
                     .andExpect(status().isOk())
@@ -72,7 +84,10 @@ class DataPostIntegrationTest extends IntegrationTestBase {
                     .andExpect(jsonPath("$.price").value(30))
                     .andExpect(jsonPath("$.fileName").value("test.csv"))
                     .andExpect(jsonPath("$.fileType").value("text/csv"))
-                    .andExpect(jsonPath("$.fileSize").value(36));
+                    .andExpect(jsonPath("$.fileSize").value(36))
+                    .andExpect(jsonPath("$.status").value("ACTIVE"))
+                    .andExpect(jsonPath("$.previewCsv").value("id,name,value\n1,Alice,100"))
+                    .andExpect(jsonPath("$.aiFlagged").value(false));
 
             assertThat(dataPostRepo.findAll()).hasSize(1);
 
@@ -92,6 +107,10 @@ class DataPostIntegrationTest extends IntegrationTestBase {
             assertThat(savedPost.getBucketName()).isEqualTo("yelos-datasets");
             assertThat(savedPost.getObjectKey())
                     .isEqualTo("sellers/" + seller.getId() + "/posts/test-file.csv");
+
+            assertThat(savedPost.getPreviewCsv()).isEqualTo("id,name,value\n1,Alice,100");
+            assertThat(savedPost.getAiFlagged()).isFalse();
+            assertThat(savedPost.getAiFlagDetails()).isNull();
         }
 
         @Test
@@ -108,7 +127,6 @@ class DataPostIntegrationTest extends IntegrationTestBase {
                             .file(file)
                             .param("userId", "999")
                             .param("title", "Coding Dataset")
-                            .param("summary", "Coding summary")
                             .param("price", "30")
                             .param("genre", "CODING"))
             )
@@ -288,7 +306,9 @@ class DataPostIntegrationTest extends IntegrationTestBase {
                     .andExpect(jsonPath("$.createdAt").exists())
                     .andExpect(jsonPath("$.fileName").value("test.csv"))
                     .andExpect(jsonPath("$.fileType").value("text/csv"))
-                    .andExpect(jsonPath("$.fileSize").value(36));
+                    .andExpect(jsonPath("$.fileSize").value(36))
+                    .andExpect(jsonPath("$.previewCsv").value("id,name,value\n1,Alice,100"))
+                    .andExpect(jsonPath("$.aiFlagged").value(false));
         }
 
         @Test
@@ -299,6 +319,24 @@ class DataPostIntegrationTest extends IntegrationTestBase {
                     .hasRootCauseInstanceOf(RuntimeException.class)
                     .hasRootCauseMessage("Data post not found");
         }
+    }
+
+    private void mockAiPipeline() {
+        AiPipelineResponse aiResult = mock(AiPipelineResponse.class, RETURNS_DEEP_STUBS);
+
+        String csvContent = "id,name,value\n1,Alice,100\n2,Bob,200";
+        String base64Content = Base64.getEncoder().encodeToString(csvContent.getBytes());
+
+        lenient().when(aiService.runPipeline(any(MultipartFile.class))).thenReturn(aiResult);
+
+        lenient().when(aiResult.summary()).thenReturn("Coding summary");
+        lenient().when(aiResult.previewCsv()).thenReturn("id,name,value\n1,Alice,100");
+        lenient().when(aiResult.flagged()).thenReturn(false);
+        lenient().when(aiResult.flagDetails()).thenReturn(null);
+
+        lenient().when(aiResult.piiFile().fileName()).thenReturn("test.csv");
+        lenient().when(aiResult.piiFile().contentType()).thenReturn("text/csv");
+        lenient().when(aiResult.piiFile().contentBase64()).thenReturn(base64Content);
     }
 
     private AppUser saveUser(
@@ -324,7 +362,7 @@ class DataPostIntegrationTest extends IntegrationTestBase {
             String summary,
             BigDecimal price
     ) {
-        return dataPostRepo.save(new DataPost(
+        DataPost post = new DataPost(
                 seller,
                 genre,
                 title,
@@ -337,6 +375,12 @@ class DataPostIntegrationTest extends IntegrationTestBase {
                 36L,
                 "yelos-datasets",
                 "sellers/" + seller.getId() + "/posts/" + UUID.randomUUID() + "-test.csv"
-        ));
+        );
+
+        ReflectionTestUtils.setField(post, "previewCsv", "id,name,value\n1,Alice,100");
+        ReflectionTestUtils.setField(post, "aiFlagged", false);
+        ReflectionTestUtils.setField(post, "aiFlagDetails", null);
+
+        return dataPostRepo.save(post);
     }
 }

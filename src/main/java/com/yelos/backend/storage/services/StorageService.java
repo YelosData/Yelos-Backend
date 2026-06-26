@@ -105,6 +105,82 @@ public class StorageService {
         }
     }
 
+    public StoredFile uploadDatasetBytes(
+            Long sellerId,
+            String fileName,
+            String fileType,
+            byte[] bytes
+    ) {
+        if (bytes == null || bytes.length == 0) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "Dataset file is required"
+            );
+        }
+
+        if (bytes.length > MAX_FILE_SIZE_BYTES) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "Dataset file must be smaller than 10MB"
+            );
+        }
+
+        String safeFileName = getSafeFileName(fileName);
+        String extension = getFileExtension(safeFileName);
+
+        if (!ALLOWED_EXTENSIONS.contains(extension)) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "Only CSV, JSON, TXT, or XLSX files are allowed"
+            );
+        }
+
+        String safeFileType = fileType == null || fileType.isBlank()
+                ? "text/csv"
+                : fileType;
+
+        String objectKey = buildObjectKey(sellerId, safeFileName);
+
+        try {
+            PutObjectRequest putObjectRequest = PutObjectRequest.builder()
+                    .bucket(bucketName)
+                    .key(objectKey)
+                    .contentType(safeFileType)
+                    .contentLength((long) bytes.length)
+                    .build();
+
+            s3Client.putObject(
+                    putObjectRequest,
+                    RequestBody.fromBytes(bytes)
+            );
+
+            return new StoredFile(
+                    bucketName,
+                    objectKey,
+                    safeFileName,
+                    safeFileType,
+                    (long) bytes.length,
+                    Instant.now()
+            );
+
+        } catch (SdkException e) {
+            throw new ResponseStatusException(
+                    HttpStatus.INTERNAL_SERVER_ERROR,
+                    "Failed to upload file to storage"
+            );
+        }
+    }
+
+    private String getSafeFileName(String fileName) {
+        if (fileName == null || fileName.isBlank()) {
+            return "dataset.csv";
+        }
+
+        return fileName
+                .trim()
+                .replaceAll("[^a-zA-Z0-9._-]", "_");
+    }
+
     private String getSafeFileName(MultipartFile file) {
         String originalFileName = file.getOriginalFilename();
 
@@ -115,6 +191,16 @@ public class StorageService {
         return originalFileName
                 .trim()
                 .replaceAll("[^a-zA-Z0-9._-]", "_");
+    }
+
+    private String getFileExtension(String fileName) {
+        int lastDotIndex = fileName.lastIndexOf(".");
+
+        if (lastDotIndex == -1 || lastDotIndex == fileName.length() - 1) {
+            return "";
+        }
+
+        return fileName.substring(lastDotIndex + 1).toLowerCase(Locale.ROOT);
     }
 
     private String getFileExtension(MultipartFile file) {

@@ -13,6 +13,7 @@ public record DataPostPreviewResponse(
         String summary,
         Genre genre,
         BigDecimal price,
-        Instant createdAt
+        Instant createdAt,
+        Boolean adminReviewed
 ) {
 }

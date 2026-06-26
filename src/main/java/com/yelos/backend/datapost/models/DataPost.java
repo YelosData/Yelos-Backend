@@ -1,5 +1,6 @@
 package com.yelos.backend.datapost.models;
 
+import com.yelos.backend.storage.dto.StoredFile;
 import com.yelos.backend.user.models.AppUser;
 import jakarta.persistence.*;
 
@@ -31,6 +32,9 @@ public class DataPost {
 
     @Enumerated(EnumType.STRING)
     private DataPostStatus status;
+    private Instant updatedAt;
+    private Instant deletedAt;
+    private Integer version;
 
     private String fileName;
     private String fileType;
@@ -41,13 +45,30 @@ public class DataPost {
     @Column(nullable = false, unique = true)
     private String objectKey;
 
+    private Boolean adminReviewed;
+
+    private Instant reviewedAt;
+
+    private Long reviewedByAdminId;
+
+    @Column(columnDefinition = "TEXT")
+    private String adminNote;
+
+    @Column(columnDefinition = "TEXT")
+    private String previewCsv;
+
+    private Boolean aiFlagged;
+
+    @Column(columnDefinition = "TEXT")
+    private String aiFlagDetails;
+
     public DataPost(){};
 
     public DataPost(
             AppUser user,
             Genre genre,
             String title,
-            String summary,
+            String aiSummary,
             BigDecimal price,
             DataPostStatus status,
             Instant createdAt,
@@ -60,15 +81,25 @@ public class DataPost {
         this.user = user;
         this.genre = genre;
         this.title = title;
-        this.summary = summary;
+        this.summary = aiSummary;
         this.price = price;
         this.status = status;
         this.createdAt = createdAt;
+        this.updatedAt = createdAt;
+        this.deletedAt = null;
+        this.version = 1;
         this.fileName = fileName;
         this.fileType = fileType;
         this.fileSize = fileSize;
         this.bucketName = bucketName;
         this.objectKey = objectKey;
+        this.adminReviewed = false;
+        this.reviewedAt = null;
+        this.reviewedByAdminId = null;
+        this.adminNote = null;
+        this.previewCsv = null;
+        this.aiFlagged = null;
+        this.aiFlagDetails = null;
     }
 
     public long getId() {
@@ -118,5 +149,140 @@ public class DataPost {
 
     public String getObjectKey() {
         return this.objectKey;
+    }
+
+    public Instant getUpdatedAt() {
+        return this.updatedAt;
+    }
+
+    public Instant getDeletedAt() {
+        return this.deletedAt;
+    }
+
+    public Integer getVersion() {
+        return this.version;
+    }
+
+    public Boolean getAdminReviewed() {
+        return this.adminReviewed;
+    }
+
+    public Instant getReviewedAt() {
+        return this.reviewedAt;
+    }
+
+    public Long getReviewedByAdminId() {
+        return this.reviewedByAdminId;
+    }
+
+    public String getAdminNote() {
+        return this.adminNote;
+    }
+
+    public String getPreviewCsv() {
+        return this.previewCsv;
+    }
+
+    public Boolean getAiFlagged() {
+        return this.aiFlagged;
+    }
+
+    public String getAiFlagDetails() {
+        return this.aiFlagDetails;
+    }
+
+    public void attachAiMetadata(
+            String aiSummary,
+            String previewCsv,
+            Boolean aiFlagged,
+            String aiFlagDetails
+    ) {
+        if (aiSummary != null && !aiSummary.isBlank()) {
+            this.summary = aiSummary;
+        }
+
+        this.previewCsv = previewCsv;
+        this.aiFlagged = aiFlagged;
+        this.aiFlagDetails = aiFlagDetails;
+    }
+
+    @PrePersist
+    public void prePersist() {              // For legacy entries whose fields are not valid and updated
+        if (this.createdAt == null) {
+            this.createdAt = Instant.now();
+        }
+
+        if (this.updatedAt == null) {
+            this.updatedAt = this.createdAt;
+        }
+
+        if (this.status == null) {
+            this.status = DataPostStatus.ACTIVE;
+        }
+
+        if (this.adminReviewed == null) {
+            this.adminReviewed = false;
+        }
+
+        if (this.version == null) {
+            this.version = 1;
+        }
+    }
+
+    public void updatePost(
+            Genre genre,
+            String title,
+            String summary,
+            BigDecimal price,
+            StoredFile storedFile,
+            Instant now
+    ) {
+        this.genre = genre;
+        this.title = title;
+        this.summary = summary;
+        this.price = price;
+
+        if (storedFile != null) {
+            this.fileName = storedFile.fileName();
+            this.fileType = storedFile.fileType();
+            this.fileSize = storedFile.fileSize();
+            this.bucketName = storedFile.bucketName();
+            this.objectKey = storedFile.objectKey();
+
+            incrementVersion();
+        }
+
+        this.updatedAt = now;
+    }
+
+    public void markDeleted(Instant now) {
+        this.status = DataPostStatus.DELETED;
+        this.deletedAt = now;
+        this.updatedAt = now;
+    }
+
+    public boolean isDeleted() {
+        return this.status == DataPostStatus.DELETED;
+    }
+
+    private void incrementVersion() {
+        this.version = this.version == null ? 1 : this.version + 1;
+    }
+
+    public void markReviewed(Long adminId, String note, Instant now) {
+        this.adminReviewed = true;
+        this.reviewedByAdminId = adminId;
+        this.reviewedAt = now;
+        this.adminNote = note;
+        this.updatedAt = now;
+    }
+
+    public void hideByAdmin(Long adminId, String note, Instant now) {
+        this.status = DataPostStatus.DELETED;
+        this.adminReviewed = true;
+        this.reviewedByAdminId = adminId;
+        this.reviewedAt = now;
+        this.adminNote = note;
+        this.updatedAt = now;
     }
 }

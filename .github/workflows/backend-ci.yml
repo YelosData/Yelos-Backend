@@ -55,21 +55,21 @@ jobs:
       SUPABASE_STORAGE_BUCKET: yelos-test
 
       RABBITMQ_HOST: localhost
-      RABBITMQ_PORT: "5672"
+      RABBITMQ_PORT: 5672
       RABBITMQ_USERNAME: yy
       RABBITMQ_PASSWORD: 123456
       RABBITMQ_VIRTUAL_HOST: /
-      RABBITMQ_SSL_ENABLED: "false"
-      RABBITMQ_CONCURRENCY: "1"
-      RABBITMQ_MAX_CONCURRENCY: "1"
-      RABBITMQ_PREFETCH: "1"
+      RABBITMQ_SSL_ENABLED: false
+      RABBITMQ_CONCURRENCY: 1
+      RABBITMQ_MAX_CONCURRENCY: 1
+      RABBITMQ_PREFETCH: 1
 
       SPRING_RABBITMQ_HOST: localhost
-      SPRING_RABBITMQ_PORT: "5672"
+      SPRING_RABBITMQ_PORT: 5672
       SPRING_RABBITMQ_USERNAME: yy
       SPRING_RABBITMQ_PASSWORD: 123456
       SPRING_RABBITMQ_VIRTUAL_HOST: /
-      SPRING_RABBITMQ_SSL_ENABLED: "false"
+      SPRING_RABBITMQ_SSL_ENABLED: false
 
     steps:
       - name: Checkout code
@@ -85,37 +85,8 @@ jobs:
       - name: Give Maven wrapper execute permission
         run: chmod +x mvnw
 
-      - name: Check service containers
-        run: |
-          docker ps
-
-          python - <<'PY'
-          import socket
-
-          services = [
-              ("PostgreSQL", "localhost", 5432),
-              ("RabbitMQ", "localhost", 5672),
-          ]
-
-          for name, host, port in services:
-              with socket.create_connection((host, port), timeout=10):
-                  print(f"{name} is reachable on {host}:{port}")
-          PY
-
       - name: Run tests
-        run: |
-          set +e
-
-          ./mvnw clean test -e
-          TEST_EXIT_CODE=$?
-
-          echo "===== SUREFIRE TXT REPORTS ====="
-          find target/surefire-reports -type f -name "*.txt" -print -exec cat {} \; || true
-
-          echo "===== SUREFIRE XML FAILURE SNIPPETS ====="
-          grep -R "Caused by\|APPLICATION FAILED\|UnsatisfiedDependencyException\|BeanCreationException\|BeanDefinitionOverrideException\|Connection refused\|relation .* does not exist\|violates check constraint" target/surefire-reports || true
-
-          exit $TEST_EXIT_CODE
+        run: ./mvnw clean test
 
   docker-build:
     name: Check Docker build

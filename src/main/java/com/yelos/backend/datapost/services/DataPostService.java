@@ -11,6 +11,8 @@ import com.yelos.backend.datapost.models.DataPostStatus;
 import com.yelos.backend.datapost.models.Genre;
 import com.yelos.backend.datapost.repo.DataPostRepo;
 import com.yelos.backend.globaldto.PageResponse;
+import com.yelos.backend.jobs.AiProcessingProducer;
+import com.yelos.backend.jobs.dto.AiProcessingMessage;
 import com.yelos.backend.storage.dto.StoredFile;
 import com.yelos.backend.storage.services.StorageService;
 import com.yelos.backend.user.models.AppUser;
@@ -37,17 +39,20 @@ public class DataPostService {
     private final UserRepo userRepo;
     private final StorageService storageService;
     private final AiService aiService;
+    private final AiProcessingProducer aiProcessingProducer;
 
     public DataPostService(
-            UserRepo userRepo,
             DataPostRepo dataPostRepo,
+            UserRepo userRepo,
             StorageService storageService,
-            AiService aiService
+            AiService aiService,
+            AiProcessingProducer aiProcessingProducer
     ) {
-        this.userRepo = userRepo;
         this.dataPostRepo = dataPostRepo;
+        this.userRepo = userRepo;
         this.storageService = storageService;
         this.aiService = aiService;
+        this.aiProcessingProducer = aiProcessingProducer;
     }
 
 
@@ -61,28 +66,24 @@ public class DataPostService {
         AppUser user = userRepo.findById(userId)
                 .orElseThrow(() -> new RuntimeException("User does not exist"));
 
-        ProcessedAiFile processedAiFile = null;
+        StoredFile storedFile;
 
         try {
-            processedAiFile = processFileWithAiAndUpload(userId, file);
+            storedFile = storageService.uploadDatasetFile(userId, file);
         } catch (Exception e) {
             e.printStackTrace();
-            throw e;
+            throw new RuntimeException("Failed to upload dataset file", e);
         }
 
-        StoredFile storedFile = processedAiFile.storedFile();
-        AiPipelineResponse aiResult = processedAiFile.aiResult();
-
-        // Ignore user-input summary for now. Use AI summary instead.
-        String aiSummary = getAiSummaryOrFallback(aiResult);
+        String pendingSummary = "AI summary is being generated. Please check back shortly.";
 
         DataPost post = new DataPost(
                 user,
                 genre,
                 title,
-                aiSummary,
+                pendingSummary,
                 price,
-                DataPostStatus.ACTIVE,
+                DataPostStatus.PENDING,
                 Instant.now(),
                 storedFile.fileName(),
                 storedFile.fileType(),
@@ -91,24 +92,17 @@ public class DataPostService {
                 storedFile.objectKey()
         );
 
-        post.attachAiMetadata(
-                aiSummary,
-                aiResult.previewCsv(),
-                aiResult.flagged(),
-                aiResult.flagDetails()
-        );
-
         DataPost savedPost = dataPostRepo.save(post);
+
+        aiProcessingProducer.send(new AiProcessingMessage(
+                savedPost.getId(),
+                userId,
+                savedPost.getBucketName(),
+                savedPost.getObjectKey()
+        ));
 
         return toDataPostResponse(savedPost);
     }
-
-    // Not in use for now
-//    public List<GenreReponse> getAllPostGenres() {
-//        return dataPostRepo.findDistinctGenre().stream()
-//                .map(GenreReponse::new)
-//                .toList();
-//    }
 
     public DataPostResponse getDataPostById(long id) {
         DataPost post = dataPostRepo.findById(id)

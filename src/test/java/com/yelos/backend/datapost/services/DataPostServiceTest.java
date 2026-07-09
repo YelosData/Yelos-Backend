@@ -1,6 +1,5 @@
 package com.yelos.backend.datapost.services;
 
-import com.yelos.backend.ai.dto.AiPipelineResponse;
 import com.yelos.backend.ai.services.AiService;
 import com.yelos.backend.datapost.dto.DataPostPreviewResponse;
 import com.yelos.backend.datapost.dto.DataPostResponse;
@@ -9,6 +8,8 @@ import com.yelos.backend.datapost.models.DataPostStatus;
 import com.yelos.backend.datapost.models.Genre;
 import com.yelos.backend.datapost.repo.DataPostRepo;
 import com.yelos.backend.globaldto.PageResponse;
+import com.yelos.backend.jobs.AiProcessingProducer;
+import com.yelos.backend.jobs.dto.AiProcessingMessage;
 import com.yelos.backend.storage.dto.StoredFile;
 import com.yelos.backend.storage.services.StorageService;
 import com.yelos.backend.user.models.AppUser;
@@ -19,7 +20,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
-import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
@@ -30,7 +30,6 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.math.BigDecimal;
 import java.time.Instant;
-import java.util.Base64;
 import java.util.List;
 import java.util.Optional;
 
@@ -53,6 +52,9 @@ class DataPostServiceTest {
     @Mock
     private AiService aiService;
 
+    @Mock
+    private AiProcessingProducer aiProcessingProducer;
+
     @InjectMocks
     private DataPostService dataPostService;
 
@@ -60,7 +62,7 @@ class DataPostServiceTest {
     class PostDataPostsTests {
 
         @Test
-        void postDataPosts_validRequest_uploadsFileSavesPostAndReturnsResponse() {
+        void postDataPosts_validRequest_uploadsFileSavesPendingPostSendsAiJobAndReturnsResponse() {
             Long userId = 1L;
 
             AppUser seller = user(
@@ -82,13 +84,10 @@ class DataPostServiceTest {
             );
 
             when(userRepo.findById(userId)).thenReturn(Optional.of(seller));
-            mockAiPipeline();
 
-            when(storageService.uploadDatasetBytes(
+            when(storageService.uploadDatasetFile(
                     eq(userId),
-                    eq("test.csv"),
-                    eq("text/csv"),
-                    any(byte[].class)
+                    any(MultipartFile.class)
             )).thenReturn(storedFile);
 
             when(dataPostRepo.save(any(DataPost.class))).thenAnswer(invocation -> {
@@ -109,44 +108,51 @@ class DataPostServiceTest {
             assertThat(response.userId()).isEqualTo(userId);
             assertThat(response.username()).isEqualTo("seller1");
             assertThat(response.title()).isEqualTo("Coding Dataset");
-            assertThat(response.summary()).isEqualTo("Coding summary");
+            assertThat(response.summary())
+                    .isEqualTo("AI summary is being generated. Please check back shortly.");
             assertThat(response.genre()).isEqualTo(Genre.CODING);
             assertThat(response.price()).isEqualByComparingTo(BigDecimal.valueOf(30));
             assertThat(response.createdAt()).isNotNull();
             assertThat(response.fileName()).isEqualTo("test.csv");
             assertThat(response.fileType()).isEqualTo("text/csv");
             assertThat(response.fileSize()).isEqualTo(36L);
-            assertThat(response.status()).isEqualTo(DataPostStatus.ACTIVE);
-            assertThat(response.previewCsv()).isEqualTo("id,name,value\n1,Alice,100");
+            assertThat(response.status()).isEqualTo(DataPostStatus.PENDING);
+            assertThat(response.previewCsv()).isNull();
             assertThat(response.aiFlagged()).isFalse();
             assertThat(response.aiFlagDetails()).isNull();
 
             verify(userRepo).findById(userId);
-            verify(aiService).runPipeline(file);
 
-            verify(storageService).uploadDatasetBytes(
+            verify(storageService).uploadDatasetFile(
                     eq(userId),
-                    eq("test.csv"),
-                    eq("text/csv"),
-                    any(byte[].class)
+                    any(MultipartFile.class)
             );
 
             verify(dataPostRepo).save(argThat(post ->
                     post.getUser().equals(seller)
                             && post.getGenre() == Genre.CODING
                             && post.getTitle().equals("Coding Dataset")
-                            && post.getSummary().equals("Coding summary")
+                            && post.getSummary().equals("AI summary is being generated. Please check back shortly.")
                             && post.getPrice().compareTo(BigDecimal.valueOf(30)) == 0
-                            && post.getStatus() == DataPostStatus.ACTIVE
+                            && post.getStatus() == DataPostStatus.PENDING
                             && post.getFileName().equals("test.csv")
                             && post.getFileType().equals("text/csv")
                             && post.getFileSize().equals(36L)
                             && post.getBucketName().equals("yelos-datasets")
                             && post.getObjectKey().equals("sellers/1/posts/test-file.csv")
-                            && post.getPreviewCsv().equals("id,name,value\n1,Alice,100")
+                            && post.getPreviewCsv() == null
                             && Boolean.FALSE.equals(post.getAiFlagged())
                             && post.getAiFlagDetails() == null
             ));
+
+            verify(aiProcessingProducer).send(argThat(message ->
+                    message.postId().equals(10L)
+                            && message.userId().equals(userId)
+                            && message.bucketName().equals("yelos-datasets")
+                            && message.objectKey().equals("sellers/1/posts/test-file.csv")
+            ));
+
+            verifyNoInteractions(aiService);
         }
 
         @Test
@@ -170,6 +176,7 @@ class DataPostServiceTest {
             verifyNoInteractions(dataPostRepo);
             verifyNoInteractions(storageService);
             verifyNoInteractions(aiService);
+            verifyNoInteractions(aiProcessingProducer);
         }
     }
 
@@ -207,6 +214,7 @@ class DataPostServiceTest {
             verifyNoInteractions(userRepo);
             verifyNoInteractions(storageService);
             verifyNoInteractions(aiService);
+            verifyNoInteractions(aiProcessingProducer);
         }
 
         @Test
@@ -221,6 +229,7 @@ class DataPostServiceTest {
             verifyNoInteractions(userRepo);
             verifyNoInteractions(storageService);
             verifyNoInteractions(aiService);
+            verifyNoInteractions(aiProcessingProducer);
         }
     }
 
@@ -228,7 +237,7 @@ class DataPostServiceTest {
     class GetDataPostTests {
 
         @Test
-        void getDataPost_nullGenre_usesFindAllAndReturnsPreviewPage() {
+        void getDataPost_nullGenre_usesFindByStatusAndReturnsPreviewPage() {
             AppUser seller = user(1L, "seller1", Role.SELLER, BigDecimal.ZERO);
 
             DataPost post = post(
@@ -273,10 +282,11 @@ class DataPostServiceTest {
             verifyNoInteractions(userRepo);
             verifyNoInteractions(storageService);
             verifyNoInteractions(aiService);
+            verifyNoInteractions(aiProcessingProducer);
         }
 
         @Test
-        void getDataPost_specificGenre_usesFindByGenre() {
+        void getDataPost_specificGenre_usesFindByGenreAndStatus() {
             AppUser seller = user(1L, "seller1", Role.SELLER, BigDecimal.ZERO);
 
             DataPost post = post(
@@ -322,6 +332,7 @@ class DataPostServiceTest {
             verifyNoInteractions(userRepo);
             verifyNoInteractions(storageService);
             verifyNoInteractions(aiService);
+            verifyNoInteractions(aiProcessingProducer);
         }
 
         @Test
@@ -351,6 +362,7 @@ class DataPostServiceTest {
             verifyNoInteractions(userRepo);
             verifyNoInteractions(storageService);
             verifyNoInteractions(aiService);
+            verifyNoInteractions(aiProcessingProducer);
         }
     }
 
@@ -415,6 +427,7 @@ class DataPostServiceTest {
 
             verifyNoInteractions(storageService);
             verifyNoInteractions(aiService);
+            verifyNoInteractions(aiProcessingProducer);
         }
 
         @Test
@@ -433,25 +446,8 @@ class DataPostServiceTest {
             verifyNoInteractions(dataPostRepo);
             verifyNoInteractions(storageService);
             verifyNoInteractions(aiService);
+            verifyNoInteractions(aiProcessingProducer);
         }
-    }
-
-    private void mockAiPipeline() {
-        AiPipelineResponse aiResult = Mockito.mock(AiPipelineResponse.class, RETURNS_DEEP_STUBS);
-
-        String csvContent = "id,name,value\n1,Alice,100\n2,Bob,200";
-        String base64Content = Base64.getEncoder().encodeToString(csvContent.getBytes());
-
-        lenient().when(aiService.runPipeline(any(MultipartFile.class))).thenReturn(aiResult);
-
-        lenient().when(aiResult.summary()).thenReturn("Coding summary");
-        lenient().when(aiResult.previewCsv()).thenReturn("id,name,value\n1,Alice,100");
-        lenient().when(aiResult.flagged()).thenReturn(false);
-        lenient().when(aiResult.flagDetails()).thenReturn(null);
-
-        lenient().when(aiResult.piiFile().fileName()).thenReturn("test.csv");
-        lenient().when(aiResult.piiFile().contentType()).thenReturn("text/csv");
-        lenient().when(aiResult.piiFile().contentBase64()).thenReturn(base64Content);
     }
 
     private MockMultipartFile datasetFile() {

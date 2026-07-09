@@ -13,8 +13,10 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -114,9 +116,13 @@ class AuthServiceTest {
 
             when(userRepo.existsByEmail("buyer1@example.com")).thenReturn(true);
 
-            assertThatThrownBy(() -> authService.register(request))
-                    .isInstanceOf(RuntimeException.class)
-                    .hasMessage("Email already exists");
+            Throwable thrown = catchThrowable(() -> authService.register(request));
+
+            assertResponseStatusException(
+                    thrown,
+                    HttpStatus.CONFLICT,
+                    "Email already exists"
+            );
 
             verify(userRepo).existsByEmail("buyer1@example.com");
             verify(userRepo, never()).existsByUsername(anyString());
@@ -138,9 +144,13 @@ class AuthServiceTest {
             when(userRepo.existsByEmail("buyer1@example.com")).thenReturn(false);
             when(userRepo.existsByUsername("buyer1")).thenReturn(true);
 
-            assertThatThrownBy(() -> authService.register(request))
-                    .isInstanceOf(RuntimeException.class)
-                    .hasMessage("Username already exists");
+            Throwable thrown = catchThrowable(() -> authService.register(request));
+
+            assertResponseStatusException(
+                    thrown,
+                    HttpStatus.CONFLICT,
+                    "Username already exists"
+            );
 
             verify(userRepo).existsByEmail("buyer1@example.com");
             verify(userRepo).existsByUsername("buyer1");
@@ -162,9 +172,13 @@ class AuthServiceTest {
             when(userRepo.existsByEmail("admin1@example.com")).thenReturn(false);
             when(userRepo.existsByUsername("admin1")).thenReturn(false);
 
-            assertThatThrownBy(() -> authService.register(request))
-                    .isInstanceOf(RuntimeException.class)
-                    .hasMessage("Cannot register as admin");
+            Throwable thrown = catchThrowable(() -> authService.register(request));
+
+            assertResponseStatusException(
+                    thrown,
+                    HttpStatus.BAD_REQUEST,
+                    "Cannot register as admin"
+            );
 
             verify(userRepo).existsByEmail("admin1@example.com");
             verify(userRepo).existsByUsername("admin1");
@@ -251,9 +265,13 @@ class AuthServiceTest {
             when(userRepo.findByUsername("missingUser"))
                     .thenReturn(Optional.empty());
 
-            assertThatThrownBy(() -> authService.login(request))
-                    .isInstanceOf(RuntimeException.class)
-                    .hasMessage("No such user exists");
+            Throwable thrown = catchThrowable(() -> authService.login(request));
+
+            assertResponseStatusException(
+                    thrown,
+                    HttpStatus.NOT_FOUND,
+                    "Username does not exist"
+            );
 
             verify(userRepo).findByUsername("missingUser");
             verifyNoInteractions(passwordEncoder);
@@ -285,9 +303,13 @@ class AuthServiceTest {
             ))
                     .thenReturn(false);
 
-            assertThatThrownBy(() -> authService.login(request))
-                    .isInstanceOf(RuntimeException.class)
-                    .hasMessage("Invalid Password");
+            Throwable thrown = catchThrowable(() -> authService.login(request));
+
+            assertResponseStatusException(
+                    thrown,
+                    HttpStatus.UNAUTHORIZED,
+                    "Invalid password"
+            );
 
             verify(userRepo).findByUsername("buyer1");
 
@@ -298,6 +320,20 @@ class AuthServiceTest {
 
             verifyNoInteractions(jwtService);
         }
+    }
+
+    private void assertResponseStatusException(
+            Throwable throwable,
+            HttpStatus expectedStatus,
+            String expectedReason
+    ) {
+        assertThat(throwable)
+                .isInstanceOf(ResponseStatusException.class);
+
+        ResponseStatusException exception = (ResponseStatusException) throwable;
+
+        assertThat(exception.getStatusCode()).isEqualTo(expectedStatus);
+        assertThat(exception.getReason()).isEqualTo(expectedReason);
     }
 
     private AppUser user(

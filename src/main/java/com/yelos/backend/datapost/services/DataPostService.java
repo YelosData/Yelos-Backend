@@ -1,20 +1,11 @@
 package com.yelos.backend.datapost.services;
 
-import com.yelos.backend.ai.dto.AiPipelineResponse;
-import com.yelos.backend.ai.dto.ProcessedAiFile;
-import com.yelos.backend.ai.services.AiService;
-import com.yelos.backend.datapost.dto.DataPostPreviewResponse;
-import com.yelos.backend.datapost.dto.PostRequest;
-import com.yelos.backend.datapost.dto.DataPostResponse;
-import com.yelos.backend.datapost.models.DataPost;
-import com.yelos.backend.datapost.models.DataPostStatus;
-import com.yelos.backend.datapost.models.Genre;
-import com.yelos.backend.datapost.repo.DataPostRepo;
-import com.yelos.backend.globaldto.PageResponse;
-import com.yelos.backend.storage.dto.StoredFile;
-import com.yelos.backend.storage.services.StorageService;
-import com.yelos.backend.user.models.AppUser;
-import com.yelos.backend.user.repo.UserRepo;
+import java.math.BigDecimal;
+import java.time.Instant;
+import java.util.Base64;
+import java.util.Comparator;
+import java.util.List;
+
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -25,10 +16,20 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.server.ResponseStatusException;
 
-import java.util.Base64;
-import java.math.BigDecimal;
-import java.time.Instant;
-import java.util.List;
+import com.yelos.backend.ai.dto.AiPipelineResponse;
+import com.yelos.backend.ai.dto.ProcessedAiFile;
+import com.yelos.backend.ai.services.AiService;
+import com.yelos.backend.datapost.dto.DataPostPreviewResponse;
+import com.yelos.backend.datapost.dto.DataPostResponse;
+import com.yelos.backend.datapost.models.DataPost;
+import com.yelos.backend.datapost.models.DataPostStatus;
+import com.yelos.backend.datapost.models.Genre;
+import com.yelos.backend.datapost.repo.DataPostRepo;
+import com.yelos.backend.globaldto.PageResponse;
+import com.yelos.backend.storage.dto.StoredFile;
+import com.yelos.backend.storage.services.StorageService;
+import com.yelos.backend.user.models.AppUser;
+import com.yelos.backend.user.repo.UserRepo;
 
 
 @Service
@@ -98,6 +99,9 @@ public class DataPostService {
                 aiResult.flagDetails()
         );
 
+
+        post.setEmbedding(aiResult.embedding());
+        
         DataPost savedPost = dataPostRepo.save(post);
 
         return toDataPostResponse(savedPost);
@@ -161,6 +165,27 @@ public class DataPostService {
                 result.isLast()
         );
     }
+
+    public List<DataPostPreviewResponse> searchDataPosts(String query, int limit) {
+    float[] queryEmbedding = aiService.embedQuery(query);
+
+    List<DataPost> activePosts = dataPostRepo.findByStatus(DataPostStatus.ACTIVE);
+
+    record ScoredPost(DataPost post, double score) {}
+
+    List<ScoredPost> scoredPosts = activePosts.stream()
+            .filter(post -> post.getEmbedding() != null)
+            .map(post -> new ScoredPost(post, cosineSimilarity(queryEmbedding, post.getEmbedding())))
+            .sorted(Comparator.comparingDouble(ScoredPost::score).reversed())
+            .filter(sp -> sp.score() > 0.25)
+            .limit(limit)
+            .toList();
+
+    return scoredPosts.stream()
+            .map(sp -> toPreviewResponse(sp.post()))
+            .toList();
+}
+
 
     public PageResponse<DataPostResponse> getAllDataPostsByUid(
             Long userId,
@@ -268,7 +293,9 @@ public class DataPostService {
         StoredFile storedFile = null;
 
         if (file != null && !file.isEmpty()) {
-            storedFile = processFileWithAiAndUpload(userId, file).storedFile();
+                ProcessedAiFile processedAiFile = processFileWithAiAndUpload(userId, file);
+                storedFile = processedAiFile.storedFile();
+                post.setEmbedding(processedAiFile.aiResult().embedding());
         }
 
         post.updatePost(
@@ -428,6 +455,25 @@ public class DataPostService {
 
         return new ProcessedAiFile(storedFile, aiResult);
     }
+
+    private double cosineSimilarity(float[] a, float[] b) {
+    double dotProduct = 0.0;
+    double normA = 0.0;
+    double normB = 0.0;
+
+    for (int i = 0; i < a.length; i++) {
+        dotProduct += a[i] * b[i];
+        normA += a[i] * a[i];
+        normB += b[i] * b[i];
+    }
+
+    if (normA == 0 || normB == 0) {
+        return 0.0;
+    }
+
+    return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
+}
+
 
     private String getAiSummaryOrFallback(AiPipelineResponse aiResult) {
         if (aiResult != null && aiResult.summary() != null && !aiResult.summary().isBlank()) {

@@ -1,11 +1,26 @@
 package com.yelos.backend.datapost.models;
 
-import com.yelos.backend.storage.dto.StoredFile;
-import com.yelos.backend.user.models.AppUser;
-import jakarta.persistence.*;
-
 import java.math.BigDecimal;
 import java.time.Instant;
+
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
+
+import com.yelos.backend.storage.dto.StoredFile;
+import com.yelos.backend.user.models.AppUser;
+
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
+import jakarta.persistence.PrePersist;
+import jakarta.persistence.Table;
+
 
 @Entity
 @Table(name = "user_posts")
@@ -61,6 +76,11 @@ public class DataPost {
 
     @Column(columnDefinition = "TEXT")
     private String aiFlagDetails;
+
+    @JdbcTypeCode(SqlTypes.ARRAY)
+    @Column(columnDefinition = "real[]")
+    private float[] embedding; 
+    
 
     public DataPost(){};
 
@@ -189,6 +209,14 @@ public class DataPost {
 
     public String getAiFlagDetails() {
         return this.aiFlagDetails;
+    }
+
+    public float[] getEmbedding() {          
+        return this.embedding;
+    }
+
+    public void setEmbedding(float[] embedding) {   
+        this.embedding = embedding;
     }
 
     public void attachAiMetadata(

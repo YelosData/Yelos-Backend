@@ -5,7 +5,8 @@ public record AiPipelineResponse(
         String previewCsv,
         Boolean flagged,
         String flagDetails,
-        String summary
+        String summary,
+        float[] embedding
 ) {
         public record PiiFile(
                 String fileName,

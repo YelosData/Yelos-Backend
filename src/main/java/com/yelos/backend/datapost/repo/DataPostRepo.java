@@ -1,16 +1,16 @@
 package com.yelos.backend.datapost.repo;
 
 
-import com.yelos.backend.datapost.dto.GenreReponse;
-import com.yelos.backend.datapost.models.DataPost;
-import com.yelos.backend.datapost.models.DataPostStatus;
-import com.yelos.backend.datapost.models.Genre;
+import java.util.List;
+
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
-import org.springframework.data.jpa.repository.Query;
 
-import java.util.List;
+import com.yelos.backend.datapost.models.DataPost;
+import com.yelos.backend.datapost.models.DataPostStatus;
+import com.yelos.backend.datapost.models.Genre;
+
 
 public interface DataPostRepo extends JpaRepository<DataPost, Long> {
     public Page<DataPost> findByUserId(Long userId, Pageable pageable);
@@ -26,6 +26,9 @@ public interface DataPostRepo extends JpaRepository<DataPost, Long> {
             DataPostStatus status,
             Pageable pageable
     );
+
+    List<DataPost> findByStatus(DataPostStatus status);
+
 
     Page<DataPost> findByGenreAndStatus(
             Genre genre,

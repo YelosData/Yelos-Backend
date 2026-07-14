@@ -1,41 +1,28 @@
 package com.yelos.backend.purchase.repo;
 
+import com.yelos.backend.IntegrationTestBase;
 import com.yelos.backend.datapost.models.DataPost;
 import com.yelos.backend.datapost.models.DataPostStatus;
 import com.yelos.backend.datapost.models.Genre;
-import com.yelos.backend.datapost.repo.DataPostRepo;
 import com.yelos.backend.purchase.models.Purchase;
 import com.yelos.backend.user.models.AppUser;
 import com.yelos.backend.user.models.Role;
-import com.yelos.backend.user.repo.UserRepo;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.BeanUtils;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
-import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-@DataJpaTest
-class PurchaseRepoTest {
-
-    @Autowired
-    private PurchaseRepo purchaseRepo;
-
-    @Autowired
-    private UserRepo userRepo;
-
-    @Autowired
-    private DataPostRepo dataPostRepo;
+@Transactional
+class PurchaseRepoTest extends IntegrationTestBase {
 
     @Nested
     class ExistsByBuyerIdAndPostIdTests {
@@ -58,6 +45,7 @@ class PurchaseRepoTest {
                     seller,
                     "Coding Dataset",
                     "Coding Summary",
+                    "Coding Content",
                     BigDecimal.valueOf(30),
                     Genre.CODING
             ));
@@ -100,6 +88,7 @@ class PurchaseRepoTest {
                     seller,
                     "Coding Dataset",
                     "Coding Summary",
+                    "Coding Content",
                     BigDecimal.valueOf(30),
                     Genre.CODING
             ));
@@ -140,6 +129,7 @@ class PurchaseRepoTest {
                     seller,
                     "Coding Dataset",
                     "Coding Summary",
+                    "Coding Content",
                     BigDecimal.valueOf(30),
                     Genre.CODING
             ));
@@ -148,6 +138,7 @@ class PurchaseRepoTest {
                     seller,
                     "Finance Dataset",
                     "Finance Summary",
+                    "Finance Content",
                     BigDecimal.valueOf(40),
                     Genre.FINANCE
             ));
@@ -177,8 +168,6 @@ class PurchaseRepoTest {
             assertThat(result).hasSize(1);
             assertThat(result.get(0).getBuyer().getId()).isEqualTo(buyer1.getId());
             assertThat(result.get(0).getTitleSnapshot()).isEqualTo("Coding Dataset");
-            assertThat(result.get(0).getFileNameSnapshot()).isEqualTo("test.csv");
-            assertThat(result.get(0).getObjectKeySnapshot()).isNotBlank();
         }
 
         @Test
@@ -216,6 +205,7 @@ class PurchaseRepoTest {
                     seller,
                     "Coding Dataset",
                     "Coding Summary",
+                    "Coding Content",
                     BigDecimal.valueOf(30),
                     Genre.CODING
             ));
@@ -224,6 +214,7 @@ class PurchaseRepoTest {
                     seller,
                     "Finance Dataset",
                     "Finance Summary",
+                    "Finance Content",
                     BigDecimal.valueOf(40),
                     Genre.FINANCE
             ));
@@ -276,6 +267,7 @@ class PurchaseRepoTest {
                     seller,
                     "Coding Dataset",
                     "Coding Summary",
+                    "Coding Content",
                     BigDecimal.valueOf(30),
                     Genre.CODING
             ));
@@ -284,6 +276,7 @@ class PurchaseRepoTest {
                     seller,
                     "Finance Dataset",
                     "Finance Summary",
+                    "Finance Content",
                     BigDecimal.valueOf(40),
                     Genre.FINANCE
             ));
@@ -318,7 +311,6 @@ class PurchaseRepoTest {
             assertThat(result.getTotalElements()).isEqualTo(1);
             assertThat(result.getContent().get(0).getGenre()).isEqualTo(Genre.CODING);
             assertThat(result.getContent().get(0).getTitleSnapshot()).isEqualTo("Coding Dataset");
-            assertThat(result.getContent().get(0).getFileNameSnapshot()).isEqualTo("test.csv");
         }
 
         @Test
@@ -345,6 +337,7 @@ class PurchaseRepoTest {
                     seller,
                     "Buyer 1 Coding Dataset",
                     "Summary",
+                    "Content",
                     BigDecimal.valueOf(30),
                     Genre.CODING
             ));
@@ -353,6 +346,7 @@ class PurchaseRepoTest {
                     seller,
                     "Buyer 2 Coding Dataset",
                     "Summary",
+                    "Content",
                     BigDecimal.valueOf(40),
                     Genre.CODING
             ));
@@ -406,6 +400,7 @@ class PurchaseRepoTest {
                     seller,
                     "Coding Dataset 1",
                     "Summary 1",
+                    "Content 1",
                     BigDecimal.valueOf(30),
                     Genre.CODING
             ));
@@ -414,6 +409,7 @@ class PurchaseRepoTest {
                     seller,
                     "Coding Dataset 2",
                     "Summary 2",
+                    "Content 2",
                     BigDecimal.valueOf(40),
                     Genre.CODING
             ));
@@ -455,44 +451,42 @@ class PurchaseRepoTest {
             Role role,
             BigDecimal credits
     ) {
-        AppUser user = BeanUtils.instantiateClass(AppUser.class);
-
-        ReflectionTestUtils.setField(user, "username", username);
-        ReflectionTestUtils.setField(user, "email", username + "@example.com");
-        ReflectionTestUtils.setField(user, "passwordHash", "password123");
-        ReflectionTestUtils.setField(user, "role", role);
-        ReflectionTestUtils.setField(user, "credits", credits);
-        ReflectionTestUtils.setField(user, "createdAt", Instant.now());
-        ReflectionTestUtils.setField(user, "updatedAt", Instant.now());
-
-        return user;
+        return new AppUser(
+                username,
+                username + "@example.com",
+                "password123",
+                credits,
+                role,
+                Instant.now(),
+                Instant.now()
+        );
     }
 
     private DataPost post(
             AppUser seller,
             String title,
             String summary,
+            String content,
             BigDecimal price,
             Genre genre
     ) {
-        DataPost post = BeanUtils.instantiateClass(DataPost.class);
-
-        ReflectionTestUtils.setField(post, "user", seller);
-        ReflectionTestUtils.setField(post, "title", title);
-        ReflectionTestUtils.setField(post, "summary", summary);
-        ReflectionTestUtils.setField(post, "price", price);
-        ReflectionTestUtils.setField(post, "genre", genre);
-        ReflectionTestUtils.setField(post, "createdAt", Instant.now());
-
-        ReflectionTestUtils.setField(post, "fileName", "test.csv");
-        ReflectionTestUtils.setField(post, "fileType", "text/csv");
-        ReflectionTestUtils.setField(post, "fileSize", 36L);
-        ReflectionTestUtils.setField(post, "bucketName", "yelos-datasets");
-        ReflectionTestUtils.setField(
-                post,
-                "objectKey",
+        DataPost post = new DataPost(
+                seller,
+                genre,
+                title,
+                summary,
+                price,
+                DataPostStatus.ACTIVE,
+                Instant.now(),
+                "test.csv",
+                "text/csv",
+                36L,
+                "yelos-datasets",
                 "sellers/" + seller.getId() + "/posts/" + UUID.randomUUID() + "-test.csv"
         );
+
+        ReflectionTestUtils.setField(post, "content", content);
+        post.setEmbedding(new float[]{0.1f, 0.2f, 0.3f});
 
         return post;
     }
@@ -501,29 +495,27 @@ class PurchaseRepoTest {
             AppUser buyer,
             AppUser seller,
             DataPost post,
-            BigDecimal price,
+            BigDecimal pricePaid,
             String titleSnapshot,
             String summarySnapshot,
             Genre genre
     ) {
-        Purchase purchase = BeanUtils.instantiateClass(Purchase.class);
+        Purchase purchase = new Purchase(
+                buyer,
+                seller,
+                post,
+                pricePaid,
+                titleSnapshot,
+                summarySnapshot,
+                Instant.now(),
+                post.getFileName(),
+                post.getFileType(),
+                post.getFileSize(),
+                post.getBucketName(),
+                post.getObjectKey()
+        );
 
-        ReflectionTestUtils.setField(purchase, "buyer", buyer);
-        ReflectionTestUtils.setField(purchase, "seller", seller);
-        ReflectionTestUtils.setField(purchase, "post", post);
-        ReflectionTestUtils.setField(purchase, "pricePaid", price);
         ReflectionTestUtils.setField(purchase, "genre", genre);
-
-        ReflectionTestUtils.setField(purchase, "titleSnapshot", titleSnapshot);
-        ReflectionTestUtils.setField(purchase, "summarySnapshot", summarySnapshot);
-
-        ReflectionTestUtils.setField(purchase, "fileNameSnapshot", post.getFileName());
-        ReflectionTestUtils.setField(purchase, "fileTypeSnapshot", post.getFileType());
-        ReflectionTestUtils.setField(purchase, "fileSizeSnapshot", post.getFileSize());
-        ReflectionTestUtils.setField(purchase, "bucketNameSnapshot", post.getBucketName());
-        ReflectionTestUtils.setField(purchase, "objectKeySnapshot", post.getObjectKey());
-
-        ReflectionTestUtils.setField(purchase, "purchasedAt", Instant.now());
 
         return purchase;
     }

@@ -70,6 +70,7 @@ public class SecurityConfig {
                                 "/api/purchase/**",
                                 "/api/credittransaction/**"
                         ).hasRole("BUSINESS")
+                        .requestMatchers("/api/health").permitAll()
 
                         .anyRequest().authenticated()
                 )

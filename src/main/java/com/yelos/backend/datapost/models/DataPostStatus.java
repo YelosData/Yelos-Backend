@@ -1,7 +1,9 @@
 package com.yelos.backend.datapost.models;
 
 public enum DataPostStatus {
+    PENDING,
+    AI_PROCESSING,
     ACTIVE,
-    DELETED,
-    PENDING
+    AI_FAILED,
+    DELETED
 }

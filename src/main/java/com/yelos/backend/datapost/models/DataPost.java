@@ -25,6 +25,7 @@ import jakarta.persistence.Table;
 @Entity
 @Table(name = "user_posts")
 public class DataPost {
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private long id;
@@ -35,6 +36,7 @@ public class DataPost {
 
     @Enumerated(EnumType.STRING)
     private Genre genre;
+
     private String title;
 
     @Column(columnDefinition = "TEXT")
@@ -42,17 +44,24 @@ public class DataPost {
 
     @Column(length = 1000, nullable = false)
     private String summary;
+
     private BigDecimal price;
+
     private Instant createdAt;
 
     @Enumerated(EnumType.STRING)
     private DataPostStatus status;
+
     private Instant updatedAt;
+
     private Instant deletedAt;
+
     private Integer version;
 
     private String fileName;
+
     private String fileType;
+
     private Long fileSize;
 
     private String bucketName;
@@ -79,10 +88,31 @@ public class DataPost {
 
     @JdbcTypeCode(SqlTypes.ARRAY)
     @Column(columnDefinition = "real[]")
-    private float[] embedding; 
-    
+    private float[] embedding;
 
-    public DataPost(){};
+    // Dataset quality rating fields
+
+    @Column(name = "quality_completeness", precision = 5, scale = 2)
+    private BigDecimal qualityCompleteness;
+
+    @Column(name = "quality_consistency", precision = 5, scale = 2)
+    private BigDecimal qualityConsistency;
+
+    @Column(name = "quality_uniqueness", precision = 5, scale = 2)
+    private BigDecimal qualityUniqueness;
+
+    @Column(name = "quality_validity", precision = 5, scale = 2)
+    private BigDecimal qualityValidity;
+
+    @Column(name = "quality_richness", precision = 5, scale = 2)
+    private BigDecimal qualityRichness;
+
+    @Column(name = "quality_total", precision = 5, scale = 2)
+    private BigDecimal qualityTotal;
+
+
+    public DataPost() {
+    }
 
     public DataPost(
             AppUser user,
@@ -120,6 +150,14 @@ public class DataPost {
         this.previewCsv = null;
         this.aiFlagged = null;
         this.aiFlagDetails = null;
+        this.embedding = null;
+
+        this.qualityCompleteness = null;
+        this.qualityConsistency = null;
+        this.qualityUniqueness = null;
+        this.qualityValidity = null;
+        this.qualityRichness = null;
+        this.qualityTotal = null;
     }
 
     public long getId() {
@@ -133,6 +171,7 @@ public class DataPost {
     public Genre getGenre() {
         return this.genre;
     }
+
     public String getTitle() {
         return this.title;
     }
@@ -140,13 +179,19 @@ public class DataPost {
     public String getContent() {
         return this.content;
     }
+
     public String getSummary() {
         return this.summary;
     }
+
     public BigDecimal getPrice() {
         return this.price;
     }
-    public DataPostStatus getStatus() { return this.status; }
+
+    public DataPostStatus getStatus() {
+        return this.status;
+    }
+
     public Instant getCreatedAt() {
         return this.createdAt;
     }
@@ -211,11 +256,35 @@ public class DataPost {
         return this.aiFlagDetails;
     }
 
-    public float[] getEmbedding() {          
+    public float[] getEmbedding() {
         return this.embedding;
     }
 
-    public void setEmbedding(float[] embedding) {   
+    public BigDecimal getQualityCompleteness() {
+        return this.qualityCompleteness;
+    }
+
+    public BigDecimal getQualityConsistency() {
+        return this.qualityConsistency;
+    }
+
+    public BigDecimal getQualityUniqueness() {
+        return this.qualityUniqueness;
+    }
+
+    public BigDecimal getQualityValidity() {
+        return this.qualityValidity;
+    }
+
+    public BigDecimal getQualityRichness() {
+        return this.qualityRichness;
+    }
+
+    public BigDecimal getQualityTotal() {
+        return this.qualityTotal;
+    }
+
+    public void setEmbedding(float[] embedding) {
         this.embedding = embedding;
     }
 
@@ -234,8 +303,25 @@ public class DataPost {
         this.aiFlagDetails = aiFlagDetails;
     }
 
+    public void attachQualityRating(
+            BigDecimal completeness,
+            BigDecimal consistency,
+            BigDecimal uniqueness,
+            BigDecimal validity,
+            BigDecimal richness,
+            BigDecimal total
+    ) {
+        this.qualityCompleteness = completeness;
+        this.qualityConsistency = consistency;
+        this.qualityUniqueness = uniqueness;
+        this.qualityValidity = validity;
+        this.qualityRichness = richness;
+        this.qualityTotal = total;
+    }
+
     @PrePersist
-    public void prePersist() {              // For legacy entries whose fields are not valid and updated
+    public void prePersist() {
+        // For legacy entries whose fields are not valid and updated
         if (this.createdAt == null) {
             this.createdAt = Instant.now();
         }
@@ -294,10 +380,16 @@ public class DataPost {
     }
 
     private void incrementVersion() {
-        this.version = this.version == null ? 1 : this.version + 1;
+        this.version = this.version == null
+                ? 1
+                : this.version + 1;
     }
 
-    public void markReviewed(Long adminId, String note, Instant now) {
+    public void markReviewed(
+            Long adminId,
+            String note,
+            Instant now
+    ) {
         this.adminReviewed = true;
         this.reviewedByAdminId = adminId;
         this.reviewedAt = now;
@@ -305,7 +397,11 @@ public class DataPost {
         this.updatedAt = now;
     }
 
-    public void hideByAdmin(Long adminId, String note, Instant now) {
+    public void hideByAdmin(
+            Long adminId,
+            String note,
+            Instant now
+    ) {
         this.status = DataPostStatus.DELETED;
         this.adminReviewed = true;
         this.reviewedByAdminId = adminId;

@@ -96,7 +96,7 @@ class AuthIntegrationTest extends IntegrationTestBase {
         }
 
         @Test
-        void register_duplicateEmail_throwsExceptionAndDoesNotSaveSecondUser() throws Exception {
+        void register_duplicateEmail_returnsConflictAndDoesNotSaveSecondUser() throws Exception {
             mockMvc.perform(post("/api/auth/register")
                             .contentType(APPLICATION_JSON)
                             .content("""
@@ -109,8 +109,7 @@ class AuthIntegrationTest extends IntegrationTestBase {
                                     """))
                     .andExpect(status().isOk());
 
-            assertThatThrownBy(() ->
-                    mockMvc.perform(post("/api/auth/register")
+            mockMvc.perform(post("/api/auth/register")
                             .contentType(APPLICATION_JSON)
                             .content("""
                                     {
@@ -120,16 +119,16 @@ class AuthIntegrationTest extends IntegrationTestBase {
                                       "role": "BUSINESS"
                                     }
                                     """))
-            )
-                    .hasRootCauseInstanceOf(RuntimeException.class)
-                    .hasRootCauseMessage("Email already exists");
+                    .andExpect(status().isConflict())
+                    .andExpect(jsonPath("$.status").value(409))
+                    .andExpect(jsonPath("$.message").value("Email already exists"));
 
             assertThat(userRepo.findAll()).hasSize(1);
             assertThat(userRepo.existsByUsername("buyer2")).isFalse();
         }
 
         @Test
-        void register_duplicateUsername_throwsExceptionAndDoesNotSaveSecondUser() throws Exception {
+        void register_duplicateUsername_returnsConflictAndDoesNotSaveSecondUser() throws Exception {
             mockMvc.perform(post("/api/auth/register")
                             .contentType(APPLICATION_JSON)
                             .content("""
@@ -142,8 +141,7 @@ class AuthIntegrationTest extends IntegrationTestBase {
                                     """))
                     .andExpect(status().isOk());
 
-            assertThatThrownBy(() ->
-                    mockMvc.perform(post("/api/auth/register")
+            mockMvc.perform(post("/api/auth/register")
                             .contentType(APPLICATION_JSON)
                             .content("""
                                     {
@@ -153,18 +151,17 @@ class AuthIntegrationTest extends IntegrationTestBase {
                                       "role": "BUSINESS"
                                     }
                                     """))
-            )
-                    .hasRootCauseInstanceOf(RuntimeException.class)
-                    .hasRootCauseMessage("Username already exists");
+                    .andExpect(status().isConflict())
+                    .andExpect(jsonPath("$.status").value(409))
+                    .andExpect(jsonPath("$.message").value("Username already exists"));
 
             assertThat(userRepo.findAll()).hasSize(1);
             assertThat(userRepo.existsByEmail("buyer2@example.com")).isFalse();
         }
 
         @Test
-        void register_adminRole_throwsExceptionAndDoesNotSaveUser() {
-            assertThatThrownBy(() ->
-                    mockMvc.perform(post("/api/auth/register")
+        void register_adminRole_returnsBadRequestAndDoesNotSaveUser() throws Exception {
+            mockMvc.perform(post("/api/auth/register")
                             .contentType(APPLICATION_JSON)
                             .content("""
                                     {
@@ -174,9 +171,9 @@ class AuthIntegrationTest extends IntegrationTestBase {
                                       "role": "ADMIN"
                                     }
                                     """))
-            )
-                    .hasRootCauseInstanceOf(RuntimeException.class)
-                    .hasRootCauseMessage("Cannot register as admin");
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.status").value(400))
+                    .andExpect(jsonPath("$.message").value("Cannot register as admin"));
 
             assertThat(userRepo.findAll()).isEmpty();
         }
@@ -218,7 +215,7 @@ class AuthIntegrationTest extends IntegrationTestBase {
         }
 
         @Test
-        void login_wrongPassword_throwsException() throws Exception {
+        void login_wrongPassword_returnsUnauthorized() throws Exception {
             mockMvc.perform(post("/api/auth/register")
                             .contentType(APPLICATION_JSON)
                             .content("""
@@ -231,8 +228,7 @@ class AuthIntegrationTest extends IntegrationTestBase {
                                     """))
                     .andExpect(status().isOk());
 
-            assertThatThrownBy(() ->
-                    mockMvc.perform(post("/api/auth/login")
+            mockMvc.perform(post("/api/auth/login")
                             .contentType(APPLICATION_JSON)
                             .content("""
                                     {
@@ -240,15 +236,14 @@ class AuthIntegrationTest extends IntegrationTestBase {
                                       "password": "wrongPassword"
                                     }
                                     """))
-            )
-                    .hasRootCauseInstanceOf(RuntimeException.class)
-                    .hasRootCauseMessage("Invalid Password");
+                    .andExpect(status().isUnauthorized())
+                    .andExpect(jsonPath("$.status").value(401))
+                    .andExpect(jsonPath("$.message").value("Invalid password"));
         }
 
         @Test
-        void login_missingUser_throwsException() {
-            assertThatThrownBy(() ->
-                    mockMvc.perform(post("/api/auth/login")
+        void login_missingUser_returnsNotFound() throws Exception {
+            mockMvc.perform(post("/api/auth/login")
                             .contentType(APPLICATION_JSON)
                             .content("""
                                     {
@@ -256,9 +251,9 @@ class AuthIntegrationTest extends IntegrationTestBase {
                                       "password": "password123"
                                     }
                                     """))
-            )
-                    .hasRootCauseInstanceOf(RuntimeException.class)
-                    .hasRootCauseMessage("No such user exists");
+                    .andExpect(status().isNotFound())
+                    .andExpect(jsonPath("$.status").value(404))
+                    .andExpect(jsonPath("$.message").value("Username does not exist"));
         }
     }
 }

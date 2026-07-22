@@ -1,6 +1,8 @@
 package com.yelos.backend.config;
 
-import com.yelos.backend.security.JwtAuthFilter;
+import java.util.Arrays;
+import java.util.List;
+
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -15,8 +17,7 @@ import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
-import java.util.Arrays;
-import java.util.List;
+import com.yelos.backend.security.JwtAuthFilter;
 
 @Configuration
 public class SecurityConfig {
@@ -54,7 +55,8 @@ public class SecurityConfig {
 
                         .requestMatchers(
                                 "/api/datapost/marketplace",
-                                "/api/datapost/posts/**"
+                                "/api/datapost/posts/**",
+                                "/api/datapost/search"
                         ).permitAll()
 
                         .requestMatchers(
@@ -63,11 +65,13 @@ public class SecurityConfig {
                         ).permitAll()
                         //hasRole("SELLER")
                         .requestMatchers("/api/ai/test/**").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/test-ai-job").permitAll()
 
                         .requestMatchers(
                                 "/api/purchase/**",
                                 "/api/credittransaction/**"
                         ).hasRole("BUSINESS")
+                        .requestMatchers("/api/health").permitAll()
 
                         .anyRequest().authenticated()
                 )

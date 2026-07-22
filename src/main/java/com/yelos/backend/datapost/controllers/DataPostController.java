@@ -1,16 +1,26 @@
 package com.yelos.backend.datapost.controllers;
 
+import java.math.BigDecimal;
+import java.util.List;
+
+import org.springframework.http.MediaType;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
+
 import com.yelos.backend.datapost.dto.DataPostPreviewResponse;
+import com.yelos.backend.datapost.dto.DataPostResponse;
 import com.yelos.backend.datapost.models.DataPostStatus;
 import com.yelos.backend.datapost.models.Genre;
 import com.yelos.backend.datapost.services.DataPostService;
-import com.yelos.backend.datapost.dto.DataPostResponse;
 import com.yelos.backend.globaldto.PageResponse;
-import org.springframework.http.MediaType;
-import org.springframework.web.bind.annotation.*;
-import org.springframework.web.multipart.MultipartFile;
-
-import java.math.BigDecimal;
 
 @RestController
 @RequestMapping("/api/datapost")
@@ -104,6 +114,15 @@ public class DataPostController {
     ) {
         return dataPostService.getUnreviewedActivePosts(page, size, sort);
     }
+
+    @GetMapping("/search")
+        public List<DataPostPreviewResponse> searchPosts(
+                @RequestParam String q,
+                @RequestParam(defaultValue = "10") int limit
+        ) {
+        return dataPostService.searchDataPosts(q, limit);
+        }
+
 
     @PatchMapping("/admin/posts/{postId}/review")
     public DataPostResponse reviewPost(

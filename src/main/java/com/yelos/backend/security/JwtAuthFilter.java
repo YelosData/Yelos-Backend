@@ -37,40 +37,57 @@ public class JwtAuthFilter extends OncePerRequestFilter {
             return;
         }
 
-        String token = authHeader.substring(7);
+        String token = authHeader.substring(7).trim();
+
+        if (token.isBlank()) {
+            filterChain.doFilter(request, response);
+            return;
+        }
 
         try {
-            if (!jwtService.isTokenValid(token) || !jwtService.isAccessToken(token)) {
-                response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
-                return;
+            if (jwtService.isTokenValid(token)
+                    && jwtService.isAccessToken(token)) {
+
+                Claims claims = jwtService.extractClaims(token);
+
+                Long userId = Long.valueOf(claims.getSubject());
+                String username = claims.get("username", String.class);
+                String role = claims.get("role", String.class);
+
+                AuthUserPrincipal principal = new AuthUserPrincipal(
+                        userId,
+                        username,
+                        role
+                );
+
+                String authority = role.startsWith("ROLE_")
+                        ? role
+                        : "ROLE_" + role;
+
+                UsernamePasswordAuthenticationToken authentication =
+                        new UsernamePasswordAuthenticationToken(
+                                principal,
+                                null,
+                                List.of(new SimpleGrantedAuthority(authority))
+                        );
+
+                SecurityContextHolder
+                        .getContext()
+                        .setAuthentication(authentication);
+            } else {
+                SecurityContextHolder.clearContext();
             }
 
-            Claims claims = jwtService.extractClaims(token);
-
-            Long userId = Long.valueOf(claims.getSubject());
-            String username = claims.get("username", String.class);
-            String role = claims.get("role", String.class);
-
-            AuthUserPrincipal principal = new AuthUserPrincipal(
-                    userId,
-                    username,
-                    role
-            );
-
-            UsernamePasswordAuthenticationToken authentication =
-                    new UsernamePasswordAuthenticationToken(
-                            principal,
-                            null,
-                            List.of(new SimpleGrantedAuthority("ROLE_" + role))
-                    );
-
-            SecurityContextHolder.getContext().setAuthentication(authentication);
-
-            filterChain.doFilter(request, response);
-
-        } catch (Exception e) {
+        } catch (Exception exception) {
             SecurityContextHolder.clearContext();
-            response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+
+            System.out.println(
+                    "JWT authentication failed: "
+                            + exception.getClass().getSimpleName()
+            );
         }
+
+        // Always allow Spring Security to evaluate the endpoint rules.
+        filterChain.doFilter(request, response);
     }
 }

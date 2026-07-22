@@ -7,6 +7,25 @@ import jakarta.persistence.*;
 import java.math.BigDecimal;
 import java.time.Instant;
 
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
+
+import com.yelos.backend.storage.dto.StoredFile;
+import com.yelos.backend.user.models.AppUser;
+
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
+import jakarta.persistence.PrePersist;
+import jakarta.persistence.Table;
+
+
 @Entity
 @Table(name = "user_posts")
 public class DataPost {
@@ -62,7 +81,33 @@ public class DataPost {
     @Column(columnDefinition = "TEXT")
     private String aiFlagDetails;
 
-    public DataPost(){};
+    @JdbcTypeCode(SqlTypes.ARRAY)
+    @Column(columnDefinition = "real[]")
+    private float[] embedding;
+
+    // Dataset quality rating fields
+
+    @Column(name = "quality_completeness", precision = 5, scale = 2)
+    private BigDecimal qualityCompleteness;
+
+    @Column(name = "quality_consistency", precision = 5, scale = 2)
+    private BigDecimal qualityConsistency;
+
+    @Column(name = "quality_uniqueness", precision = 5, scale = 2)
+    private BigDecimal qualityUniqueness;
+
+    @Column(name = "quality_validity", precision = 5, scale = 2)
+    private BigDecimal qualityValidity;
+
+    @Column(name = "quality_richness", precision = 5, scale = 2)
+    private BigDecimal qualityRichness;
+
+    @Column(name = "quality_total", precision = 5, scale = 2)
+    private BigDecimal qualityTotal;
+
+
+    public DataPost() {
+    }
 
     public DataPost(
             AppUser user,
@@ -98,8 +143,16 @@ public class DataPost {
         this.reviewedByAdminId = null;
         this.adminNote = null;
         this.previewCsv = null;
-        this.aiFlagged = null;
+        this.aiFlagged = false;
         this.aiFlagDetails = null;
+        this.embedding = null;
+
+        this.qualityCompleteness = null;
+        this.qualityConsistency = null;
+        this.qualityUniqueness = null;
+        this.qualityValidity = null;
+        this.qualityRichness = null;
+        this.qualityTotal = null;
     }
 
     public long getId() {
@@ -126,7 +179,11 @@ public class DataPost {
     public BigDecimal getPrice() {
         return this.price;
     }
-    public DataPostStatus getStatus() { return this.status; }
+
+    public DataPostStatus getStatus() {
+        return this.status;
+    }
+
     public Instant getCreatedAt() {
         return this.createdAt;
     }
@@ -191,6 +248,38 @@ public class DataPost {
         return this.aiFlagDetails;
     }
 
+    public float[] getEmbedding() {
+        return this.embedding;
+    }
+
+    public BigDecimal getQualityCompleteness() {
+        return this.qualityCompleteness;
+    }
+
+    public BigDecimal getQualityConsistency() {
+        return this.qualityConsistency;
+    }
+
+    public BigDecimal getQualityUniqueness() {
+        return this.qualityUniqueness;
+    }
+
+    public BigDecimal getQualityValidity() {
+        return this.qualityValidity;
+    }
+
+    public BigDecimal getQualityRichness() {
+        return this.qualityRichness;
+    }
+
+    public BigDecimal getQualityTotal() {
+        return this.qualityTotal;
+    }
+
+    public void setEmbedding(float[] embedding) {
+        this.embedding = embedding;
+    }
+
     public void attachAiMetadata(
             String aiSummary,
             String previewCsv,
@@ -204,6 +293,22 @@ public class DataPost {
         this.previewCsv = previewCsv;
         this.aiFlagged = aiFlagged;
         this.aiFlagDetails = aiFlagDetails;
+    }
+
+    public void attachQualityRating(
+            BigDecimal completeness,
+            BigDecimal consistency,
+            BigDecimal uniqueness,
+            BigDecimal validity,
+            BigDecimal richness,
+            BigDecimal total
+    ) {
+        this.qualityCompleteness = completeness;
+        this.qualityConsistency = consistency;
+        this.qualityUniqueness = uniqueness;
+        this.qualityValidity = validity;
+        this.qualityRichness = richness;
+        this.qualityTotal = total;
     }
 
     @PrePersist
@@ -226,6 +331,10 @@ public class DataPost {
 
         if (this.version == null) {
             this.version = 1;
+        }
+
+        if (this.aiFlagged == null) {
+            this.aiFlagged = false;
         }
     }
 
@@ -266,7 +375,9 @@ public class DataPost {
     }
 
     private void incrementVersion() {
-        this.version = this.version == null ? 1 : this.version + 1;
+        this.version = this.version == null
+                ? 1
+                : this.version + 1;
     }
 
     public void markReviewed(Long adminId, String note, Instant now) {
@@ -283,6 +394,63 @@ public class DataPost {
         this.reviewedByAdminId = adminId;
         this.reviewedAt = now;
         this.adminNote = note;
+        this.updatedAt = now;
+    }
+
+    public void markAiProcessing(Instant now) {
+        this.status = DataPostStatus.PROCESSING;
+        this.updatedAt = now;
+    }
+
+    public void markAiCompleted(
+            String aiSummary,
+            String previewCsv,
+            Boolean aiFlagged,
+            String aiFlagDetails,
+            Instant now
+    ) {
+        attachAiMetadata(
+                aiSummary,
+                previewCsv,
+                aiFlagged,
+                aiFlagDetails
+        );
+
+        this.status = DataPostStatus.ACTIVE;
+        this.updatedAt = now;
+    }
+
+    public void completeAiProcessingWithStoredFile(
+            String aiSummary,
+            String previewCsv,
+            Boolean aiFlagged,
+            String aiFlagDetails,
+            StoredFile storedFile,
+            Instant now
+    ) {
+        attachAiMetadata(
+                aiSummary,
+                previewCsv,
+                aiFlagged,
+                aiFlagDetails
+        );
+
+        if (storedFile != null) {
+            this.fileName = storedFile.fileName();
+            this.fileType = storedFile.fileType();
+            this.fileSize = storedFile.fileSize();
+            this.bucketName = storedFile.bucketName();
+            this.objectKey = storedFile.objectKey();
+        }
+
+        this.status = DataPostStatus.ACTIVE;
+        this.updatedAt = now;
+    }
+
+    public void markAiFailed(String errorMessage, Instant now) {
+        this.status = DataPostStatus.AI_FAILED;
+        this.aiFlagged = true;
+        this.aiFlagDetails = errorMessage;
         this.updatedAt = now;
     }
 }

@@ -14,6 +14,8 @@ public record DataPostPreviewResponse(
         Genre genre,
         BigDecimal price,
         Instant createdAt,
-        Boolean adminReviewed
+        Boolean adminReviewed,
+
+        DataQualityRatingResponse qualityRating
 ) {
 }

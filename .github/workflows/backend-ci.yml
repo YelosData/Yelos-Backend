@@ -27,10 +27,25 @@ jobs:
           --health-timeout=5s
           --health-retries=5
 
+      rabbitmq:
+        image: rabbitmq:3-management
+        env:
+          RABBITMQ_DEFAULT_USER: yy
+          RABBITMQ_DEFAULT_PASS: 123456
+        ports:
+          - 5672:5672
+          - 15672:15672
+        options: >-
+          --health-cmd="rabbitmq-diagnostics -q ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
     env:
       DB_URL: jdbc:postgresql://localhost:5432/yelos_test
       DB_USERNAME: yy
       DB_PASSWORD: 123456
+
       JWT_SECRET: test-secret-key-for-github-actions-at-least-32-characters-long
 
       SUPABASE_STORAGE_ENDPOINT: https://example.supabase.co/storage/v1/s3
@@ -38,6 +53,23 @@ jobs:
       SUPABASE_STORAGE_ACCESS_KEY: dummy-access-key
       SUPABASE_STORAGE_SECRET_KEY: dummy-secret-key
       SUPABASE_STORAGE_BUCKET: yelos-test
+
+      RABBITMQ_HOST: localhost
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USERNAME: yy
+      RABBITMQ_PASSWORD: 123456
+      RABBITMQ_VIRTUAL_HOST: /
+      RABBITMQ_SSL_ENABLED: false
+      RABBITMQ_CONCURRENCY: 1
+      RABBITMQ_MAX_CONCURRENCY: 1
+      RABBITMQ_PREFETCH: 1
+
+      SPRING_RABBITMQ_HOST: localhost
+      SPRING_RABBITMQ_PORT: 5672
+      SPRING_RABBITMQ_USERNAME: yy
+      SPRING_RABBITMQ_PASSWORD: 123456
+      SPRING_RABBITMQ_VIRTUAL_HOST: /
+      SPRING_RABBITMQ_SSL_ENABLED: false
 
     steps:
       - name: Checkout code

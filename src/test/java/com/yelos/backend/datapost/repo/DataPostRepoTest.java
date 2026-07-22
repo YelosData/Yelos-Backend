@@ -1,17 +1,16 @@
 package com.yelos.backend.datapost.repo;
 
+import com.yelos.backend.IntegrationTestBase;
 import com.yelos.backend.datapost.models.DataPost;
 import com.yelos.backend.datapost.models.DataPostStatus;
 import com.yelos.backend.datapost.models.Genre;
 import com.yelos.backend.user.models.AppUser;
 import com.yelos.backend.user.models.Role;
-import com.yelos.backend.user.repo.UserRepo;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -19,14 +18,8 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-@DataJpaTest
-class DataPostRepoTest {
-
-    @Autowired
-    private DataPostRepo dataPostRepo;
-
-    @Autowired
-    private UserRepo userRepo;
+@Transactional
+class DataPostRepoTest extends IntegrationTestBase {
 
     @Nested
     class FindByUserIdTests {
@@ -64,6 +57,7 @@ class DataPostRepoTest {
             assertThat(result.getContent().get(0).getTitle()).isEqualTo("Seller 1 Dataset");
             assertThat(result.getContent().get(0).getFileName()).isEqualTo("test.csv");
             assertThat(result.getContent().get(0).getObjectKey()).isNotBlank();
+            assertThat(result.getContent().get(0).getEmbedding()).containsExactly(0.1f, 0.2f, 0.3f);
         }
 
         @Test
@@ -115,6 +109,7 @@ class DataPostRepoTest {
             assertThat(result.getContent().get(0).getTitle()).isEqualTo("Coding Dataset");
             assertThat(result.getContent().get(0).getFileName()).isEqualTo("test.csv");
             assertThat(result.getContent().get(0).getBucketName()).isEqualTo("yelos-datasets");
+            assertThat(result.getContent().get(0).getEmbedding()).containsExactly(0.1f, 0.2f, 0.3f);
         }
 
         @Test
@@ -173,6 +168,7 @@ class DataPostRepoTest {
             assertThat(result.getContent()).hasSize(1);
             assertThat(result.getContent().get(0).getTitle()).isEqualTo("Active Dataset");
             assertThat(result.getContent().get(0).getStatus()).isEqualTo(DataPostStatus.ACTIVE);
+            assertThat(result.getContent().get(0).getEmbedding()).containsExactly(0.1f, 0.2f, 0.3f);
         }
 
         @Test
@@ -218,6 +214,7 @@ class DataPostRepoTest {
             assertThat(result.getContent().get(0).getTitle()).isEqualTo("Active Coding Dataset");
             assertThat(result.getContent().get(0).getFileName()).isEqualTo("test.csv");
             assertThat(result.getContent().get(0).getBucketName()).isEqualTo("yelos-datasets");
+            assertThat(result.getContent().get(0).getEmbedding()).containsExactly(0.1f, 0.2f, 0.3f);
         }
 
         @Test
@@ -244,7 +241,6 @@ class DataPostRepoTest {
         }
     }
 
-
     private AppUser user(
             String username,
             Role role
@@ -268,7 +264,7 @@ class DataPostRepoTest {
             BigDecimal price,
             DataPostStatus status
     ) {
-        return new DataPost(
+        DataPost post = new DataPost(
                 user,
                 genre,
                 title,
@@ -282,5 +278,9 @@ class DataPostRepoTest {
                 "yelos-datasets",
                 "sellers/" + user.getId() + "/posts/" + UUID.randomUUID() + "-test.csv"
         );
+
+        post.setEmbedding(new float[]{0.1f, 0.2f, 0.3f});
+
+        return post;
     }
 }

@@ -28,6 +28,8 @@ public record DataPostResponse(
 
         String previewCsv,
         Boolean aiFlagged,
-        String aiFlagDetails
+        String aiFlagDetails,
+
+        DataQualityRatingResponse qualityRating
 ) {
 }

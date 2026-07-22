@@ -65,6 +65,7 @@ public class SecurityConfig {
                         ).permitAll()
                         //hasRole("SELLER")
                         .requestMatchers("/api/ai/test/**").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/test-ai-job").permitAll()
 
                         .requestMatchers(
                                 "/api/purchase/**",

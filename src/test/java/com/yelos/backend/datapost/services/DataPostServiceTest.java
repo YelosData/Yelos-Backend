@@ -1,6 +1,5 @@
 package com.yelos.backend.datapost.services;
 
-import com.yelos.backend.ai.dto.AiPipelineResponse;
 import com.yelos.backend.ai.services.AiService;
 import com.yelos.backend.datapost.dto.DataPostPreviewResponse;
 import com.yelos.backend.datapost.dto.DataPostResponse;
@@ -9,6 +8,7 @@ import com.yelos.backend.datapost.models.DataPostStatus;
 import com.yelos.backend.datapost.models.Genre;
 import com.yelos.backend.datapost.repo.DataPostRepo;
 import com.yelos.backend.globaldto.PageResponse;
+import com.yelos.backend.jobs.AiProcessingProducer;
 import com.yelos.backend.storage.dto.StoredFile;
 import com.yelos.backend.storage.services.StorageService;
 import com.yelos.backend.user.models.AppUser;
@@ -19,7 +19,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
-import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
@@ -27,19 +26,28 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.web.multipart.MultipartFile;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.math.BigDecimal;
 import java.time.Instant;
-import java.util.Base64;
 import java.util.List;
 import java.util.Optional;
 
-import static org.assertj.core.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.*;
-import static org.mockito.Mockito.*;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class DataPostServiceTest {
+
+    private static final String PENDING_SUMMARY =
+            "AI processing is pending. Please check back shortly.";
 
     @Mock
     private DataPostRepo dataPostRepo;
@@ -53,6 +61,9 @@ class DataPostServiceTest {
     @Mock
     private AiService aiService;
 
+    @Mock
+    private AiProcessingProducer aiProcessingProducer;
+
     @InjectMocks
     private DataPostService dataPostService;
 
@@ -60,7 +71,7 @@ class DataPostServiceTest {
     class PostDataPostsTests {
 
         @Test
-        void postDataPosts_validRequest_uploadsFileSavesPostAndReturnsResponse() {
+        void postDataPosts_validRequest_uploadsFileSavesPendingPostSendsAiJobAndReturnsResponse() {
             Long userId = 1L;
 
             AppUser seller = user(
@@ -81,21 +92,20 @@ class DataPostServiceTest {
                     Instant.now()
             );
 
-            when(userRepo.findById(userId)).thenReturn(Optional.of(seller));
-            mockAiPipeline();
+            when(userRepo.findById(userId))
+                    .thenReturn(Optional.of(seller));
 
-            when(storageService.uploadDatasetBytes(
+            when(storageService.uploadDatasetFile(
                     eq(userId),
-                    eq("test.csv"),
-                    eq("text/csv"),
-                    any(byte[].class)
+                    any(MultipartFile.class)
             )).thenReturn(storedFile);
 
-            when(dataPostRepo.save(any(DataPost.class))).thenAnswer(invocation -> {
-                DataPost savedPost = invocation.getArgument(0);
-                ReflectionTestUtils.setField(savedPost, "id", 10L);
-                return savedPost;
-            });
+            when(dataPostRepo.save(any(DataPost.class)))
+                    .thenAnswer(invocation -> {
+                        DataPost savedPost = invocation.getArgument(0);
+                        ReflectionTestUtils.setField(savedPost, "id", 10L);
+                        return savedPost;
+                    });
 
             DataPostResponse response = dataPostService.postDataPosts(
                     userId,
@@ -109,44 +119,60 @@ class DataPostServiceTest {
             assertThat(response.userId()).isEqualTo(userId);
             assertThat(response.username()).isEqualTo("seller1");
             assertThat(response.title()).isEqualTo("Coding Dataset");
-            assertThat(response.summary()).isEqualTo("Coding summary");
+            assertThat(response.summary()).isEqualTo(PENDING_SUMMARY);
             assertThat(response.genre()).isEqualTo(Genre.CODING);
-            assertThat(response.price()).isEqualByComparingTo(BigDecimal.valueOf(30));
+            assertThat(response.price())
+                    .isEqualByComparingTo(BigDecimal.valueOf(30));
             assertThat(response.createdAt()).isNotNull();
             assertThat(response.fileName()).isEqualTo("test.csv");
             assertThat(response.fileType()).isEqualTo("text/csv");
             assertThat(response.fileSize()).isEqualTo(36L);
-            assertThat(response.status()).isEqualTo(DataPostStatus.ACTIVE);
-            assertThat(response.previewCsv()).isEqualTo("id,name,value\n1,Alice,100");
+            assertThat(response.status()).isEqualTo(DataPostStatus.PENDING);
+
+            // AI processing has not run yet.
+            assertThat(response.previewCsv()).isNull();
             assertThat(response.aiFlagged()).isFalse();
             assertThat(response.aiFlagDetails()).isNull();
+            assertThat(response.qualityRating()).isNull();
 
             verify(userRepo).findById(userId);
-            verify(aiService).runPipeline(file);
 
-            verify(storageService).uploadDatasetBytes(
+            verify(storageService).uploadDatasetFile(
                     eq(userId),
-                    eq("test.csv"),
-                    eq("text/csv"),
-                    any(byte[].class)
+                    any(MultipartFile.class)
             );
 
             verify(dataPostRepo).save(argThat(post ->
                     post.getUser().equals(seller)
                             && post.getGenre() == Genre.CODING
                             && post.getTitle().equals("Coding Dataset")
-                            && post.getSummary().equals("Coding summary")
+                            && post.getSummary().equals(PENDING_SUMMARY)
                             && post.getPrice().compareTo(BigDecimal.valueOf(30)) == 0
-                            && post.getStatus() == DataPostStatus.ACTIVE
+                            && post.getStatus() == DataPostStatus.PENDING
                             && post.getFileName().equals("test.csv")
                             && post.getFileType().equals("text/csv")
                             && post.getFileSize().equals(36L)
                             && post.getBucketName().equals("yelos-datasets")
                             && post.getObjectKey().equals("sellers/1/posts/test-file.csv")
-                            && post.getPreviewCsv().equals("id,name,value\n1,Alice,100")
+                            && post.getPreviewCsv() == null
                             && Boolean.FALSE.equals(post.getAiFlagged())
                             && post.getAiFlagDetails() == null
+                            && post.getQualityCompleteness() == null
+                            && post.getQualityConsistency() == null
+                            && post.getQualityUniqueness() == null
+                            && post.getQualityValidity() == null
+                            && post.getQualityRichness() == null
+                            && post.getQualityTotal() == null
             ));
+
+            verify(aiProcessingProducer).send(argThat(message ->
+                    message.postId().equals(10L)
+                            && message.userId().equals(userId)
+                            && message.bucketName().equals("yelos-datasets")
+                            && message.objectKey().equals("sellers/1/posts/test-file.csv")
+            ));
+
+            verifyNoInteractions(aiService);
         }
 
         @Test
@@ -154,7 +180,8 @@ class DataPostServiceTest {
             Long userId = 1L;
             MockMultipartFile file = datasetFile();
 
-            when(userRepo.findById(userId)).thenReturn(Optional.empty());
+            when(userRepo.findById(userId))
+                    .thenReturn(Optional.empty());
 
             assertThatThrownBy(() -> dataPostService.postDataPosts(
                     userId,
@@ -163,13 +190,14 @@ class DataPostServiceTest {
                     Genre.CODING,
                     file
             ))
-                    .isInstanceOf(RuntimeException.class)
-                    .hasMessage("User does not exist");
+                    .isInstanceOf(ResponseStatusException.class)
+                    .hasMessageContaining("User does not exist");
 
             verify(userRepo).findById(userId);
             verifyNoInteractions(dataPostRepo);
             verifyNoInteractions(storageService);
             verifyNoInteractions(aiService);
+            verifyNoInteractions(aiProcessingProducer);
         }
     }
 
@@ -177,8 +205,13 @@ class DataPostServiceTest {
     class GetDataPostByIdTests {
 
         @Test
-        void getDataPostById_existingPost_returnsResponse() {
-            AppUser seller = user(1L, "seller1", Role.SELLER, BigDecimal.ZERO);
+        void getDataPostById_existingPost_returnsResponseWithQualityRating() {
+            AppUser seller = user(
+                    1L,
+                    "seller1",
+                    Role.SELLER,
+                    BigDecimal.ZERO
+            );
 
             DataPost post = post(
                     10L,
@@ -189,9 +222,11 @@ class DataPostServiceTest {
                     BigDecimal.valueOf(30)
             );
 
-            when(dataPostRepo.findById(10L)).thenReturn(Optional.of(post));
+            when(dataPostRepo.findById(10L))
+                    .thenReturn(Optional.of(post));
 
-            DataPostResponse response = dataPostService.getDataPostById(10L);
+            DataPostResponse response =
+                    dataPostService.getDataPostById(10L);
 
             assertThat(response.id()).isEqualTo(10L);
             assertThat(response.userId()).isEqualTo(1L);
@@ -199,28 +234,37 @@ class DataPostServiceTest {
             assertThat(response.title()).isEqualTo("Coding Dataset");
             assertThat(response.summary()).isEqualTo("Coding summary");
             assertThat(response.genre()).isEqualTo(Genre.CODING);
-            assertThat(response.price()).isEqualByComparingTo(BigDecimal.valueOf(30));
-            assertThat(response.previewCsv()).isEqualTo("id,name,value\n1,Alice,100");
+            assertThat(response.price())
+                    .isEqualByComparingTo(BigDecimal.valueOf(30));
+            assertThat(response.previewCsv())
+                    .isEqualTo("id,name,value\n1,Alice,100");
             assertThat(response.aiFlagged()).isFalse();
+
+            assertQualityRating(response);
 
             verify(dataPostRepo).findById(10L);
             verifyNoInteractions(userRepo);
             verifyNoInteractions(storageService);
             verifyNoInteractions(aiService);
+            verifyNoInteractions(aiProcessingProducer);
         }
 
         @Test
         void getDataPostById_missingPost_throwsException() {
-            when(dataPostRepo.findById(10L)).thenReturn(Optional.empty());
+            when(dataPostRepo.findById(10L))
+                    .thenReturn(Optional.empty());
 
-            assertThatThrownBy(() -> dataPostService.getDataPostById(10L))
-                    .isInstanceOf(RuntimeException.class)
-                    .hasMessage("Data post not found");
+            assertThatThrownBy(() ->
+                    dataPostService.getDataPostById(10L)
+            )
+                    .isInstanceOf(ResponseStatusException.class)
+                    .hasMessageContaining("Data post not found");
 
             verify(dataPostRepo).findById(10L);
             verifyNoInteractions(userRepo);
             verifyNoInteractions(storageService);
             verifyNoInteractions(aiService);
+            verifyNoInteractions(aiProcessingProducer);
         }
     }
 
@@ -228,8 +272,13 @@ class DataPostServiceTest {
     class GetDataPostTests {
 
         @Test
-        void getDataPost_nullGenre_usesFindAllAndReturnsPreviewPage() {
-            AppUser seller = user(1L, "seller1", Role.SELLER, BigDecimal.ZERO);
+        void getDataPost_nullGenre_usesFindByStatusAndReturnsPreviewPageWithRating() {
+            AppUser seller = user(
+                    1L,
+                    "seller1",
+                    Role.SELLER,
+                    BigDecimal.ZERO
+            );
 
             DataPost post = post(
                     10L,
@@ -240,23 +289,34 @@ class DataPostServiceTest {
                     BigDecimal.valueOf(30)
             );
 
-            Page<DataPost> pageResult = new PageImpl<>(List.of(post));
+            Page<DataPost> pageResult =
+                    new PageImpl<>(List.of(post));
 
-            when(dataPostRepo.findByStatus(eq(DataPostStatus.ACTIVE), any(Pageable.class)))
-                    .thenReturn(pageResult);
+            when(dataPostRepo.findByStatus(
+                    eq(DataPostStatus.ACTIVE),
+                    any(Pageable.class)
+            )).thenReturn(pageResult);
 
-            PageResponse<DataPostPreviewResponse> response = dataPostService.getDataPost(
-                    0,
-                    12,
-                    null,
-                    "newest"
-            );
+            PageResponse<DataPostPreviewResponse> response =
+                    dataPostService.getDataPost(
+                            0,
+                            12,
+                            null,
+                            "newest"
+                    );
 
             assertThat(response.content()).hasSize(1);
-            assertThat(response.content().get(0).id()).isEqualTo(10L);
-            assertThat(response.content().get(0).title()).isEqualTo("Coding Dataset");
-            assertThat(response.content().get(0).summary()).isEqualTo("Coding summary");
-            assertThat(response.content().get(0).genre()).isEqualTo(Genre.CODING);
+
+            DataPostPreviewResponse preview =
+                    response.content().get(0);
+
+            assertThat(preview.id()).isEqualTo(10L);
+            assertThat(preview.title()).isEqualTo("Coding Dataset");
+            assertThat(preview.summary()).isEqualTo("Coding summary");
+            assertThat(preview.genre()).isEqualTo(Genre.CODING);
+            assertThat(preview.qualityRating()).isNotNull();
+            assertThat(preview.qualityRating().total())
+                    .isEqualByComparingTo("90.60");
 
             verify(dataPostRepo).findByStatus(
                     eq(DataPostStatus.ACTIVE),
@@ -264,20 +324,32 @@ class DataPostServiceTest {
                             pageable.getPageNumber() == 0
                                     && pageable.getPageSize() == 12
                                     && pageable.getSort().getOrderFor("createdAt") != null
-                                    && pageable.getSort().getOrderFor("createdAt").isDescending()
+                                    && pageable.getSort()
+                                    .getOrderFor("createdAt")
+                                    .isDescending()
                     )
             );
 
-            verify(dataPostRepo, never()).findAll(any(Pageable.class));
-            verify(dataPostRepo, never()).findByGenre(any(), any(Pageable.class));
+            verify(dataPostRepo, never())
+                    .findAll(any(Pageable.class));
+
+            verify(dataPostRepo, never())
+                    .findByGenre(any(), any(Pageable.class));
+
             verifyNoInteractions(userRepo);
             verifyNoInteractions(storageService);
             verifyNoInteractions(aiService);
+            verifyNoInteractions(aiProcessingProducer);
         }
 
         @Test
-        void getDataPost_specificGenre_usesFindByGenre() {
-            AppUser seller = user(1L, "seller1", Role.SELLER, BigDecimal.ZERO);
+        void getDataPost_specificGenre_usesFindByGenreAndStatus() {
+            AppUser seller = user(
+                    1L,
+                    "seller1",
+                    Role.SELLER,
+                    BigDecimal.ZERO
+            );
 
             DataPost post = post(
                     10L,
@@ -288,7 +360,8 @@ class DataPostServiceTest {
                     BigDecimal.valueOf(40)
             );
 
-            Page<DataPost> pageResult = new PageImpl<>(List.of(post));
+            Page<DataPost> pageResult =
+                    new PageImpl<>(List.of(post));
 
             when(dataPostRepo.findByGenreAndStatus(
                     eq(Genre.FINANCE),
@@ -296,16 +369,21 @@ class DataPostServiceTest {
                     any(Pageable.class)
             )).thenReturn(pageResult);
 
-            PageResponse<DataPostPreviewResponse> response = dataPostService.getDataPost(
-                    0,
-                    12,
-                    Genre.FINANCE,
-                    "priceAsc"
-            );
+            PageResponse<DataPostPreviewResponse> response =
+                    dataPostService.getDataPost(
+                            0,
+                            12,
+                            Genre.FINANCE,
+                            "priceAsc"
+                    );
 
             assertThat(response.content()).hasSize(1);
-            assertThat(response.content().get(0).genre()).isEqualTo(Genre.FINANCE);
-            assertThat(response.content().get(0).title()).isEqualTo("Finance Dataset");
+            assertThat(response.content().get(0).genre())
+                    .isEqualTo(Genre.FINANCE);
+            assertThat(response.content().get(0).title())
+                    .isEqualTo("Finance Dataset");
+            assertThat(response.content().get(0).qualityRating())
+                    .isNotNull();
 
             verify(dataPostRepo).findByGenreAndStatus(
                     eq(Genre.FINANCE),
@@ -314,29 +392,38 @@ class DataPostServiceTest {
                             pageable.getPageNumber() == 0
                                     && pageable.getPageSize() == 12
                                     && pageable.getSort().getOrderFor("price") != null
-                                    && pageable.getSort().getOrderFor("price").isAscending()
+                                    && pageable.getSort()
+                                    .getOrderFor("price")
+                                    .isAscending()
                     )
             );
 
-            verify(dataPostRepo, never()).findAll(any(Pageable.class));
+            verify(dataPostRepo, never())
+                    .findAll(any(Pageable.class));
+
             verifyNoInteractions(userRepo);
             verifyNoInteractions(storageService);
             verifyNoInteractions(aiService);
+            verifyNoInteractions(aiProcessingProducer);
         }
 
         @Test
         void getDataPost_invalidPageAndSize_normalizesValues() {
-            Page<DataPost> emptyPage = new PageImpl<>(List.of());
+            Page<DataPost> emptyPage =
+                    new PageImpl<>(List.of());
 
-            when(dataPostRepo.findByStatus(eq(DataPostStatus.ACTIVE), any(Pageable.class)))
-                    .thenReturn(emptyPage);
+            when(dataPostRepo.findByStatus(
+                    eq(DataPostStatus.ACTIVE),
+                    any(Pageable.class)
+            )).thenReturn(emptyPage);
 
-            PageResponse<DataPostPreviewResponse> response = dataPostService.getDataPost(
-                    -5,
-                    999,
-                    null,
-                    "newest"
-            );
+            PageResponse<DataPostPreviewResponse> response =
+                    dataPostService.getDataPost(
+                            -5,
+                            999,
+                            null,
+                            "newest"
+                    );
 
             assertThat(response.content()).isEmpty();
 
@@ -351,6 +438,7 @@ class DataPostServiceTest {
             verifyNoInteractions(userRepo);
             verifyNoInteractions(storageService);
             verifyNoInteractions(aiService);
+            verifyNoInteractions(aiProcessingProducer);
         }
     }
 
@@ -358,10 +446,15 @@ class DataPostServiceTest {
     class GetAllDataPostsByUidTests {
 
         @Test
-        void getAllDataPostsByUid_validUser_returnsPageResponse() {
+        void getAllDataPostsByUid_validUser_returnsPageResponseWithRating() {
             Long userId = 1L;
 
-            AppUser seller = user(userId, "seller1", Role.SELLER, BigDecimal.ZERO);
+            AppUser seller = user(
+                    userId,
+                    "seller1",
+                    Role.SELLER,
+                    BigDecimal.ZERO
+            );
 
             DataPost post = post(
                     10L,
@@ -372,31 +465,42 @@ class DataPostServiceTest {
                     BigDecimal.valueOf(30)
             );
 
-            Page<DataPost> pageResult = new PageImpl<>(List.of(post));
+            Page<DataPost> pageResult =
+                    new PageImpl<>(List.of(post));
 
-            when(userRepo.findById(userId)).thenReturn(Optional.of(seller));
+            when(userRepo.findById(userId))
+                    .thenReturn(Optional.of(seller));
+
             when(dataPostRepo.findByUserIdAndStatusNot(
                     eq(userId),
                     eq(DataPostStatus.DELETED),
                     any(Pageable.class)
             )).thenReturn(pageResult);
 
-            PageResponse<DataPostResponse> response = dataPostService.getAllDataPostsByUid(
-                    userId,
-                    0,
-                    12,
-                    "oldest"
-            );
+            PageResponse<DataPostResponse> response =
+                    dataPostService.getAllDataPostsByUid(
+                            userId,
+                            0,
+                            12,
+                            "oldest"
+                    );
 
             assertThat(response.content()).hasSize(1);
-            assertThat(response.content().get(0).id()).isEqualTo(10L);
-            assertThat(response.content().get(0).userId()).isEqualTo(userId);
-            assertThat(response.content().get(0).title()).isEqualTo("Coding Dataset");
-            assertThat(response.content().get(0).fileName()).isEqualTo("test.csv");
-            assertThat(response.content().get(0).fileType()).isEqualTo("text/csv");
-            assertThat(response.content().get(0).fileSize()).isEqualTo(36L);
-            assertThat(response.content().get(0).previewCsv()).isEqualTo("id,name,value\n1,Alice,100");
-            assertThat(response.content().get(0).aiFlagged()).isFalse();
+
+            DataPostResponse postResponse =
+                    response.content().get(0);
+
+            assertThat(postResponse.id()).isEqualTo(10L);
+            assertThat(postResponse.userId()).isEqualTo(userId);
+            assertThat(postResponse.title()).isEqualTo("Coding Dataset");
+            assertThat(postResponse.fileName()).isEqualTo("test.csv");
+            assertThat(postResponse.fileType()).isEqualTo("text/csv");
+            assertThat(postResponse.fileSize()).isEqualTo(36L);
+            assertThat(postResponse.previewCsv())
+                    .isEqualTo("id,name,value\n1,Alice,100");
+            assertThat(postResponse.aiFlagged()).isFalse();
+
+            assertQualityRating(postResponse);
 
             verify(userRepo).findById(userId);
 
@@ -407,52 +511,65 @@ class DataPostServiceTest {
                             pageable.getPageNumber() == 0
                                     && pageable.getPageSize() == 12
                                     && pageable.getSort().getOrderFor("createdAt") != null
-                                    && pageable.getSort().getOrderFor("createdAt").isAscending()
+                                    && pageable.getSort()
+                                    .getOrderFor("createdAt")
+                                    .isAscending()
                     )
             );
 
-            verify(dataPostRepo, never()).findByUserId(any(), any(Pageable.class));
+            verify(dataPostRepo, never())
+                    .findByUserId(any(), any(Pageable.class));
 
             verifyNoInteractions(storageService);
             verifyNoInteractions(aiService);
+            verifyNoInteractions(aiProcessingProducer);
         }
 
         @Test
         void getAllDataPostsByUid_userNotFound_throwsException() {
             Long userId = 1L;
 
-            when(userRepo.findById(userId)).thenReturn(Optional.empty());
+            when(userRepo.findById(userId))
+                    .thenReturn(Optional.empty());
 
             assertThatThrownBy(() ->
-                    dataPostService.getAllDataPostsByUid(userId, 0, 12, "newest")
+                    dataPostService.getAllDataPostsByUid(
+                            userId,
+                            0,
+                            12,
+                            "newest"
+                    )
             )
-                    .isInstanceOf(RuntimeException.class)
-                    .hasMessage("User does not exist");
+                    .isInstanceOf(ResponseStatusException.class)
+                    .hasMessageContaining("User does not exist");
 
             verify(userRepo).findById(userId);
             verifyNoInteractions(dataPostRepo);
             verifyNoInteractions(storageService);
             verifyNoInteractions(aiService);
+            verifyNoInteractions(aiProcessingProducer);
         }
     }
 
-    private void mockAiPipeline() {
-        AiPipelineResponse aiResult = Mockito.mock(AiPipelineResponse.class, RETURNS_DEEP_STUBS);
 
-        String csvContent = "id,name,value\n1,Alice,100\n2,Bob,200";
-        String base64Content = Base64.getEncoder().encodeToString(csvContent.getBytes());
-
-        lenient().when(aiService.runPipeline(any(MultipartFile.class))).thenReturn(aiResult);
-
-        lenient().when(aiResult.summary()).thenReturn("Coding summary");
-        lenient().when(aiResult.previewCsv()).thenReturn("id,name,value\n1,Alice,100");
-        lenient().when(aiResult.flagged()).thenReturn(false);
-        lenient().when(aiResult.flagDetails()).thenReturn(null);
-
-        lenient().when(aiResult.piiFile().fileName()).thenReturn("test.csv");
-        lenient().when(aiResult.piiFile().contentType()).thenReturn("text/csv");
-        lenient().when(aiResult.piiFile().contentBase64()).thenReturn(base64Content);
+    private void assertQualityRating(
+            DataPostResponse response
+    ) {
+        assertThat(response.qualityRating()).isNotNull();
+        assertThat(response.qualityRating().completeness())
+                .isEqualByComparingTo("98.50");
+        assertThat(response.qualityRating().consistency())
+                .isEqualByComparingTo("92.00");
+        assertThat(response.qualityRating().uniqueness())
+                .isEqualByComparingTo("87.50");
+        assertThat(response.qualityRating().validity())
+                .isEqualByComparingTo("95.00");
+        assertThat(response.qualityRating().richness())
+                .isEqualByComparingTo("80.00");
+        assertThat(response.qualityRating().total())
+                .isEqualByComparingTo("90.60");
     }
+
 
     private MockMultipartFile datasetFile() {
         return new MockMultipartFile(
@@ -462,6 +579,7 @@ class DataPostServiceTest {
                 "id,name,value\n1,Alice,100\n2,Bob,200".getBytes()
         );
     }
+
 
     private AppUser user(
             Long id,
@@ -479,10 +597,15 @@ class DataPostServiceTest {
                 Instant.now()
         );
 
-        ReflectionTestUtils.setField(user, "id", id);
+        ReflectionTestUtils.setField(
+                user,
+                "id",
+                id
+        );
 
         return user;
     }
+
 
     private DataPost post(
             Long id,
@@ -507,10 +630,27 @@ class DataPostServiceTest {
                 "sellers/1/posts/test-file.csv"
         );
 
-        ReflectionTestUtils.setField(post, "id", id);
-        ReflectionTestUtils.setField(post, "previewCsv", "id,name,value\n1,Alice,100");
-        ReflectionTestUtils.setField(post, "aiFlagged", false);
-        ReflectionTestUtils.setField(post, "aiFlagDetails", null);
+        ReflectionTestUtils.setField(
+                post,
+                "id",
+                id
+        );
+
+        post.attachAiMetadata(
+                summary,
+                "id,name,value\n1,Alice,100",
+                false,
+                null
+        );
+
+        post.attachQualityRating(
+                new BigDecimal("98.50"),
+                new BigDecimal("92.00"),
+                new BigDecimal("87.50"),
+                new BigDecimal("95.00"),
+                new BigDecimal("80.00"),
+                new BigDecimal("90.60")
+        );
 
         return post;
     }

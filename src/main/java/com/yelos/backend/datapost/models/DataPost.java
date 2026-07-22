@@ -1,5 +1,9 @@
 package com.yelos.backend.datapost.models;
 
+import com.yelos.backend.storage.dto.StoredFile;
+import com.yelos.backend.user.models.AppUser;
+import jakarta.persistence.*;
+
 import java.math.BigDecimal;
 import java.time.Instant;
 
@@ -25,7 +29,6 @@ import jakarta.persistence.Table;
 @Entity
 @Table(name = "user_posts")
 public class DataPost {
-
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private long id;
@@ -36,7 +39,6 @@ public class DataPost {
 
     @Enumerated(EnumType.STRING)
     private Genre genre;
-
     private String title;
 
     @Column(columnDefinition = "TEXT")
@@ -44,24 +46,17 @@ public class DataPost {
 
     @Column(length = 1000, nullable = false)
     private String summary;
-
     private BigDecimal price;
-
     private Instant createdAt;
 
     @Enumerated(EnumType.STRING)
     private DataPostStatus status;
-
     private Instant updatedAt;
-
     private Instant deletedAt;
-
     private Integer version;
 
     private String fileName;
-
     private String fileType;
-
     private Long fileSize;
 
     private String bucketName;
@@ -148,7 +143,7 @@ public class DataPost {
         this.reviewedByAdminId = null;
         this.adminNote = null;
         this.previewCsv = null;
-        this.aiFlagged = null;
+        this.aiFlagged = false;
         this.aiFlagDetails = null;
         this.embedding = null;
 
@@ -171,7 +166,6 @@ public class DataPost {
     public Genre getGenre() {
         return this.genre;
     }
-
     public String getTitle() {
         return this.title;
     }
@@ -179,11 +173,9 @@ public class DataPost {
     public String getContent() {
         return this.content;
     }
-
     public String getSummary() {
         return this.summary;
     }
-
     public BigDecimal getPrice() {
         return this.price;
     }
@@ -320,8 +312,7 @@ public class DataPost {
     }
 
     @PrePersist
-    public void prePersist() {
-        // For legacy entries whose fields are not valid and updated
+    public void prePersist() {              // For legacy entries whose fields are not valid and updated
         if (this.createdAt == null) {
             this.createdAt = Instant.now();
         }
@@ -340,6 +331,10 @@ public class DataPost {
 
         if (this.version == null) {
             this.version = 1;
+        }
+
+        if (this.aiFlagged == null) {
+            this.aiFlagged = false;
         }
     }
 
@@ -385,11 +380,7 @@ public class DataPost {
                 : this.version + 1;
     }
 
-    public void markReviewed(
-            Long adminId,
-            String note,
-            Instant now
-    ) {
+    public void markReviewed(Long adminId, String note, Instant now) {
         this.adminReviewed = true;
         this.reviewedByAdminId = adminId;
         this.reviewedAt = now;
@@ -397,16 +388,69 @@ public class DataPost {
         this.updatedAt = now;
     }
 
-    public void hideByAdmin(
-            Long adminId,
-            String note,
-            Instant now
-    ) {
+    public void hideByAdmin(Long adminId, String note, Instant now) {
         this.status = DataPostStatus.DELETED;
         this.adminReviewed = true;
         this.reviewedByAdminId = adminId;
         this.reviewedAt = now;
         this.adminNote = note;
+        this.updatedAt = now;
+    }
+
+    public void markAiProcessing(Instant now) {
+        this.status = DataPostStatus.PROCESSING;
+        this.updatedAt = now;
+    }
+
+    public void markAiCompleted(
+            String aiSummary,
+            String previewCsv,
+            Boolean aiFlagged,
+            String aiFlagDetails,
+            Instant now
+    ) {
+        attachAiMetadata(
+                aiSummary,
+                previewCsv,
+                aiFlagged,
+                aiFlagDetails
+        );
+
+        this.status = DataPostStatus.ACTIVE;
+        this.updatedAt = now;
+    }
+
+    public void completeAiProcessingWithStoredFile(
+            String aiSummary,
+            String previewCsv,
+            Boolean aiFlagged,
+            String aiFlagDetails,
+            StoredFile storedFile,
+            Instant now
+    ) {
+        attachAiMetadata(
+                aiSummary,
+                previewCsv,
+                aiFlagged,
+                aiFlagDetails
+        );
+
+        if (storedFile != null) {
+            this.fileName = storedFile.fileName();
+            this.fileType = storedFile.fileType();
+            this.fileSize = storedFile.fileSize();
+            this.bucketName = storedFile.bucketName();
+            this.objectKey = storedFile.objectKey();
+        }
+
+        this.status = DataPostStatus.ACTIVE;
+        this.updatedAt = now;
+    }
+
+    public void markAiFailed(String errorMessage, Instant now) {
+        this.status = DataPostStatus.AI_FAILED;
+        this.aiFlagged = true;
+        this.aiFlagDetails = errorMessage;
         this.updatedAt = now;
     }
 }

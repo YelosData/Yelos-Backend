@@ -6,12 +6,18 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.server.ResponseStatusException;
+import software.amazon.awssdk.core.ResponseBytes;
 import software.amazon.awssdk.core.exception.SdkException;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.model.GetObjectRequest;
+import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.time.Instant;
 import java.util.Locale;
 import java.util.Set;
@@ -76,31 +82,6 @@ public class StorageService {
             throw new ResponseStatusException(
                     HttpStatus.INTERNAL_SERVER_ERROR,
                     "Failed to upload file to storage"
-            );
-        }
-    }
-
-    private void validateFile(MultipartFile file) {
-        if (file == null || file.isEmpty()) {
-            throw new ResponseStatusException(
-                    HttpStatus.BAD_REQUEST,
-                    "Dataset file is required"
-            );
-        }
-
-        if (file.getSize() > MAX_FILE_SIZE_BYTES) {
-            throw new ResponseStatusException(
-                    HttpStatus.BAD_REQUEST,
-                    "Dataset file must be smaller than 10MB"
-            );
-        }
-
-        String extension = getFileExtension(file);
-
-        if (!ALLOWED_EXTENSIONS.contains(extension)) {
-            throw new ResponseStatusException(
-                    HttpStatus.BAD_REQUEST,
-                    "Only CSV, JSON, TXT, or XLSX files are allowed"
             );
         }
     }
@@ -171,6 +152,166 @@ public class StorageService {
         }
     }
 
+    public StoredFile overwriteDatasetBytes(
+            String targetBucketName,
+            String objectKey,
+            String fileName,
+            String fileType,
+            byte[] bytes
+    ) {
+        if (objectKey == null || objectKey.isBlank()) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "Storage object key is required"
+            );
+        }
+
+        if (bytes == null || bytes.length == 0) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "Dataset file is required"
+            );
+        }
+
+        if (bytes.length > MAX_FILE_SIZE_BYTES) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "Dataset file must be smaller than 10MB"
+            );
+        }
+
+        String safeFileName = getSafeFileName(fileName);
+        String extension = getFileExtension(safeFileName);
+
+        if (!ALLOWED_EXTENSIONS.contains(extension)) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "Only CSV, JSON, TXT, or XLSX files are allowed"
+            );
+        }
+
+        String safeFileType = fileType == null || fileType.isBlank()
+                ? "text/csv"
+                : fileType;
+
+        String bucketToUse = targetBucketName == null || targetBucketName.isBlank()
+                ? bucketName
+                : targetBucketName;
+
+        try {
+            PutObjectRequest putObjectRequest = PutObjectRequest.builder()
+                    .bucket(bucketToUse)
+                    .key(objectKey)
+                    .contentType(safeFileType)
+                    .contentLength((long) bytes.length)
+                    .build();
+
+            s3Client.putObject(
+                    putObjectRequest,
+                    RequestBody.fromBytes(bytes)
+            );
+
+            return new StoredFile(
+                    bucketToUse,
+                    objectKey,
+                    safeFileName,
+                    safeFileType,
+                    (long) bytes.length,
+                    Instant.now()
+            );
+
+        } catch (SdkException e) {
+            throw new ResponseStatusException(
+                    HttpStatus.INTERNAL_SERVER_ERROR,
+                    "Failed to overwrite file in storage"
+            );
+        }
+    }
+
+    public Path downloadToTempFile(
+            String sourceBucketName,
+            String objectKey,
+            String originalFileName
+    ) {
+        if (objectKey == null || objectKey.isBlank()) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "Storage object key is required"
+            );
+        }
+
+        String bucketToUse = sourceBucketName == null || sourceBucketName.isBlank()
+                ? bucketName
+                : sourceBucketName;
+
+        String safeFileName = getSafeFileName(originalFileName);
+        String suffix = getTempFileSuffix(safeFileName);
+
+        try {
+            System.out.println("Downloading file from storage:");
+            System.out.println("bucket = " + bucketToUse);
+            System.out.println("objectKey = " + objectKey);
+
+            GetObjectRequest getObjectRequest = GetObjectRequest.builder()
+                    .bucket(bucketToUse)
+                    .key(objectKey)
+                    .build();
+
+            ResponseBytes<GetObjectResponse> objectBytes =
+                    s3Client.getObjectAsBytes(getObjectRequest);
+
+            Path tempFile = Files.createTempFile("yelos-ai-", suffix);
+
+            Files.write(
+                    tempFile,
+                    objectBytes.asByteArray(),
+                    StandardOpenOption.TRUNCATE_EXISTING
+            );
+
+            return tempFile;
+
+        } catch (IOException e) {
+            e.printStackTrace();
+
+            throw new ResponseStatusException(
+                    HttpStatus.INTERNAL_SERVER_ERROR,
+                    "Failed to create temporary file: " + e.getMessage()
+            );
+        } catch (SdkException e) {
+            e.printStackTrace();
+
+            throw new ResponseStatusException(
+                    HttpStatus.INTERNAL_SERVER_ERROR,
+                    "Failed to download file from storage: " + e.getMessage()
+            );
+        }
+    }
+
+    private void validateFile(MultipartFile file) {
+        if (file == null || file.isEmpty()) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "Dataset file is required"
+            );
+        }
+
+        if (file.getSize() > MAX_FILE_SIZE_BYTES) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "Dataset file must be smaller than 10MB"
+            );
+        }
+
+        String extension = getFileExtension(file);
+
+        if (!ALLOWED_EXTENSIONS.contains(extension)) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "Only CSV, JSON, TXT, or XLSX files are allowed"
+            );
+        }
+    }
+
     private String getSafeFileName(String fileName) {
         if (fileName == null || fileName.isBlank()) {
             return "dataset.csv";
@@ -185,7 +326,7 @@ public class StorageService {
         String originalFileName = file.getOriginalFilename();
 
         if (originalFileName == null || originalFileName.isBlank()) {
-            return "dataset";
+            return "dataset.csv";
         }
 
         return originalFileName
@@ -222,6 +363,16 @@ public class StorageService {
         }
 
         return contentType;
+    }
+
+    private String getTempFileSuffix(String safeFileName) {
+        String extension = getFileExtension(safeFileName);
+
+        if (extension.isBlank()) {
+            return ".tmp";
+        }
+
+        return "." + extension;
     }
 
     private String buildObjectKey(Long sellerId, String safeFileName) {

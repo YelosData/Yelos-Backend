@@ -11,6 +11,18 @@ services:
       - "${POSTGRES_PORT}:5432"
     volumes:
       - yelos_postgres_data:/var/lib/postgresql/data
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: yelos-rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: yy
+      RABBITMQ_DEFAULT_PASS: 123456
+    volumes:
+      - yelos_rabbitmq_data:/var/lib/rabbitmq
 
 volumes:
   yelos_postgres_data:
+  yelos_rabbitmq_data:

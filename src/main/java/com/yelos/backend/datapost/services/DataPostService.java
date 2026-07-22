@@ -5,6 +5,7 @@ import java.time.Instant;
 import java.util.Base64;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Objects;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -27,6 +28,8 @@ import com.yelos.backend.datapost.models.DataPostStatus;
 import com.yelos.backend.datapost.models.Genre;
 import com.yelos.backend.datapost.repo.DataPostRepo;
 import com.yelos.backend.globaldto.PageResponse;
+import com.yelos.backend.jobs.AiProcessingProducer;
+import com.yelos.backend.jobs.dto.AiProcessingMessage;
 import com.yelos.backend.storage.dto.StoredFile;
 import com.yelos.backend.storage.services.StorageService;
 import com.yelos.backend.user.models.AppUser;
@@ -40,17 +43,20 @@ public class DataPostService {
     private final UserRepo userRepo;
     private final StorageService storageService;
     private final AiService aiService;
+    private final AiProcessingProducer aiProcessingProducer;
 
     public DataPostService(
-            UserRepo userRepo,
             DataPostRepo dataPostRepo,
+            UserRepo userRepo,
             StorageService storageService,
-            AiService aiService
+            AiService aiService,
+            AiProcessingProducer aiProcessingProducer
     ) {
-        this.userRepo = userRepo;
         this.dataPostRepo = dataPostRepo;
+        this.userRepo = userRepo;
         this.storageService = storageService;
         this.aiService = aiService;
+        this.aiProcessingProducer = aiProcessingProducer;
     }
 
 
@@ -62,35 +68,48 @@ public class DataPostService {
             MultipartFile file
     ) {
         AppUser user = userRepo.findById(userId)
-                .orElseThrow(() -> new RuntimeException(
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND,
                         "User does not exist"
                 ));
 
-        ProcessedAiFile processedAiFile;
+        if (file == null || file.isEmpty()) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "Dataset file is required"
+            );
+        }
+
+        StoredFile storedFile;
 
         try {
-            processedAiFile = processFileWithAiAndUpload(
+            /*
+             * Upload the original file only.
+             * The RabbitMQ worker will run the AI pipeline asynchronously.
+             */
+            storedFile = storageService.uploadDatasetFile(
                     userId,
                     file
             );
         } catch (Exception e) {
             e.printStackTrace();
-            throw e;
+
+            throw new ResponseStatusException(
+                    HttpStatus.INTERNAL_SERVER_ERROR,
+                    "Failed to upload dataset file"
+            );
         }
 
-        StoredFile storedFile = processedAiFile.storedFile();
-        AiPipelineResponse aiResult = processedAiFile.aiResult();
-
-        // Ignore user-input summary for now. Use AI summary instead.
-        String aiSummary = getAiSummaryOrFallback(aiResult);
+        String pendingSummary =
+                "AI processing is pending. Please check back shortly.";
 
         DataPost post = new DataPost(
                 user,
                 genre,
-                title,
-                aiSummary,
+                title.trim(),
+                pendingSummary,
                 price,
-                DataPostStatus.ACTIVE,
+                DataPostStatus.PENDING,
                 Instant.now(),
                 storedFile.fileName(),
                 storedFile.fileType(),
@@ -99,35 +118,29 @@ public class DataPostService {
                 storedFile.objectKey()
         );
 
-        post.attachAiMetadata(
-                aiSummary,
-                aiResult.previewCsv(),
-                aiResult.flagged(),
-                aiResult.flagDetails()
-        );
-
-        post.setEmbedding(aiResult.embedding());
-
-        // NEW: Save the dataset quality rating.
-        attachQualityRating(post, aiResult);
-
         DataPost savedPost = dataPostRepo.save(post);
 
+        aiProcessingProducer.send(
+                new AiProcessingMessage(
+                        savedPost.getId(),
+                        userId,
+                        savedPost.getBucketName(),
+                        savedPost.getObjectKey()
+                )
+        );
+
+        /*
+         * Return immediately after saving and queueing.
+         * The frontend can now redirect to My Posts.
+         */
         return toDataPostResponse(savedPost);
     }
 
 
-    // Not in use for now
-//    public List<GenreReponse> getAllPostGenres() {
-//        return dataPostRepo.findDistinctGenre().stream()
-//                .map(GenreReponse::new)
-//                .toList();
-//    }
-
-
     public DataPostResponse getDataPostById(long id) {
         DataPost post = dataPostRepo.findById(id)
-                .orElseThrow(() -> new RuntimeException(
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND,
                         "Data post not found"
                 ));
 
@@ -201,7 +214,16 @@ public class DataPostService {
             String query,
             int limit
     ) {
-        float[] queryEmbedding = aiService.embedQuery(query);
+        if (query == null || query.isBlank()) {
+            return List.of();
+        }
+
+        if (limit < 1) {
+            limit = 10;
+        }
+
+        float[] queryEmbedding =
+                aiService.embedQuery(query.trim());
 
         List<DataPost> activePosts =
                 dataPostRepo.findByStatus(
@@ -223,13 +245,13 @@ public class DataPostService {
                                 post.getEmbedding()
                         )
                 ))
+                .filter(scoredPost ->
+                        scoredPost.score() > 0.25
+                )
                 .sorted(
                         Comparator.comparingDouble(
                                 ScoredPost::score
                         ).reversed()
-                )
-                .filter(scoredPost ->
-                        scoredPost.score() > 0.25
                 )
                 .limit(limit)
                 .toList();
@@ -249,7 +271,8 @@ public class DataPostService {
             String sort
     ) {
         AppUser user = userRepo.findById(userId)
-                .orElseThrow(() -> new RuntimeException(
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND,
                         "User does not exist"
                 ));
 
@@ -311,14 +334,15 @@ public class DataPostService {
             Long userId
     ) {
         DataPost post = dataPostRepo.findById(postId)
-                .orElseThrow(() ->
-                        new ResponseStatusException(
-                                HttpStatus.NOT_FOUND,
-                                "Post does not exist"
-                        )
-                );
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND,
+                        "Post does not exist"
+                ));
 
-        if (post.getUser().getId() != userId) {
+        if (!Objects.equals(
+                post.getUser().getId(),
+                userId
+        )) {
             throw new ResponseStatusException(
                     HttpStatus.FORBIDDEN,
                     "You can only delete your own posts"
@@ -347,14 +371,15 @@ public class DataPostService {
             MultipartFile file
     ) {
         DataPost post = dataPostRepo.findById(postId)
-                .orElseThrow(() ->
-                        new ResponseStatusException(
-                                HttpStatus.NOT_FOUND,
-                                "Post does not exist"
-                        )
-                );
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND,
+                        "Post does not exist"
+                ));
 
-        if (post.getUser().getId() != userId) {
+        if (!Objects.equals(
+                post.getUser().getId(),
+                userId
+        )) {
             throw new ResponseStatusException(
                     HttpStatus.FORBIDDEN,
                     "You can only update your own posts"
@@ -376,8 +401,13 @@ public class DataPostService {
         );
 
         StoredFile storedFile = null;
+        String updatedSummary = summary.trim();
 
         if (file != null && !file.isEmpty()) {
+            /*
+             * File replacement remains synchronous for now.
+             * Initial post creation is handled through RabbitMQ.
+             */
             ProcessedAiFile processedAiFile =
                     processFileWithAiAndUpload(
                             userId,
@@ -389,16 +419,30 @@ public class DataPostService {
             AiPipelineResponse aiResult =
                     processedAiFile.aiResult();
 
-            post.setEmbedding(aiResult.embedding());
+            updatedSummary =
+                    getAiSummaryOrFallback(aiResult);
 
-            // NEW: Replace the rating when a new file is uploaded.
-            attachQualityRating(post, aiResult);
+            post.attachAiMetadata(
+                    updatedSummary,
+                    aiResult.previewCsv(),
+                    aiResult.flagged(),
+                    aiResult.flagDetails()
+            );
+
+            post.setEmbedding(
+                    aiResult.embedding()
+            );
+
+            attachQualityRating(
+                    post,
+                    aiResult
+            );
         }
 
         post.updatePost(
                 genre,
                 title.trim(),
-                summary.trim(),
+                updatedSummary,
                 price,
                 storedFile,
                 Instant.now()
@@ -462,12 +506,10 @@ public class DataPostService {
             String note
     ) {
         DataPost post = dataPostRepo.findById(postId)
-                .orElseThrow(() ->
-                        new ResponseStatusException(
-                                HttpStatus.NOT_FOUND,
-                                "Post does not exist"
-                        )
-                );
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND,
+                        "Post does not exist"
+                ));
 
         if (adminId == null) {
             throw new ResponseStatusException(
@@ -487,7 +529,9 @@ public class DataPostService {
         }
 
         String cleanedNote =
-                note == null ? null : note.trim();
+                note == null
+                        ? null
+                        : note.trim();
 
         Instant now = Instant.now();
 
@@ -612,6 +656,15 @@ public class DataPostService {
             float[] a,
             float[] b
     ) {
+        if (
+                a == null
+                        || b == null
+                        || a.length == 0
+                        || a.length != b.length
+        ) {
+            return 0.0;
+        }
+
         double dotProduct = 0.0;
         double normA = 0.0;
         double normB = 0.0;
@@ -649,7 +702,6 @@ public class DataPostService {
     }
 
 
-    // NEW: Copy the rating received from Python into the entity.
     private void attachQualityRating(
             DataPost post,
             AiPipelineResponse aiResult
@@ -675,7 +727,6 @@ public class DataPostService {
     }
 
 
-    // NEW: Convert the entity rating into the frontend response DTO.
     private DataQualityRatingResponse toQualityRatingResponse(
             DataPost post
     ) {
@@ -715,8 +766,6 @@ public class DataPostService {
                 post.getPrice(),
                 post.getCreatedAt(),
                 post.getAdminReviewed(),
-
-                // NEW
                 toQualityRatingResponse(post)
         );
     }
@@ -744,12 +793,9 @@ public class DataPostService {
                 post.getReviewedAt(),
                 post.getReviewedByAdminId(),
                 post.getAdminNote(),
-
                 post.getPreviewCsv(),
                 post.getAiFlagged(),
                 post.getAiFlagDetails(),
-
-
                 toQualityRatingResponse(post)
         );
     }
